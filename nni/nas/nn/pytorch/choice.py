@@ -360,7 +360,13 @@ class ChosenInputs(nn.Module):
         if reduction_type == 'none':
             return tensor_list
         if not tensor_list:
-            return None  # empty. return None for now
+            # An empty selection is only valid when reduction is 'none'.
+            # For all other reduction modes the result would be undefined.
+            raise ValueError(
+                f'InputChoice received an empty tensor list with reduction="{reduction_type}". '
+                'This typically means n_chosen=0 was used with a non-"none" reduction. '
+                'Use reduction="none" when n_chosen may be 0.'
+            )
         if len(tensor_list) == 1:
             return tensor_list[0]
         if reduction_type == 'sum':

@@ -136,7 +136,8 @@ class ExperimentConfig(ConfigBase):
                 setattr(self, algo_type, None)
 
         if self.advisor is not None:
-            assert self.tuner is None, '"advisor" is deprecated. You should only set "tuner".'
+            if self.tuner is not None:
+                raise ValueError('"advisor" is deprecated. You should only set "tuner".')
             self.tuner = self.advisor
             self.advisor = None
 
@@ -175,11 +176,17 @@ class ExperimentConfig(ConfigBase):
         # to make the error message clear, ideally it should be:
         # `if concurrency < 0: raise ValueError('trial_concurrency ({concurrency}) must greater than 0')`
         # but I believe there will be hardy few users make this kind of mistakes, so let's keep it simple
-        assert self.trial_concurrency > 0
-        assert self.max_experiment_duration is None or utils.parse_time(self.max_experiment_duration) > 0
-        assert self.max_trial_number is None or self.max_trial_number > 0
-        assert self.max_trial_duration is None or utils.parse_time(self.max_trial_duration) > 0
-        assert self.log_level in ['fatal', 'error', 'warning', 'info', 'debug', 'trace']
+        if not (self.trial_concurrency > 0):
+            raise ValueError('ExperimentConfig: trial_concurrency must be a positive integer.')
+        if not (self.max_experiment_duration is None or utils.parse_time(self.max_experiment_duration) > 0):
+            raise ValueError('ExperimentConfig: max_experiment_duration must be a positive duration string.')
+        if not (self.max_trial_number is None or self.max_trial_number > 0):
+            raise ValueError('ExperimentConfig: max_trial_number must be a positive integer.')
+        if not (self.max_trial_duration is None or utils.parse_time(self.max_trial_duration) > 0):
+            raise ValueError('ExperimentConfig: max_trial_duration must be a positive duration string.')
+        _valid_log_levels = ['fatal', 'error', 'warning', 'info', 'debug', 'trace']
+        if self.log_level not in _valid_log_levels:
+            raise ValueError(f'ExperimentConfig: log_level must be one of {_valid_log_levels}, got "{self.log_level}".')
 
         # following line is disabled because it has side effect
         # enable it if users encounter problems caused by failure in creating experiment directory

@@ -43,6 +43,33 @@ The following table summarizes all the APIs we have provided for constructing se
    * - :class:`AutoActivation <nni.nas.hub.pytorch.modules.AutoActivation>`
      - Hyper-modules library
      - Searching for activation functions
+   * - :class:`MutablePatchEmbedding <nni.nas.nn.pytorch.MutablePatchEmbedding>`
+     - Vision Building Blocks
+     - Mutable patch projection stem for Vision Transformers; ``patch_size`` and ``embed_dim`` are searchable
+   * - :class:`MixedDepthwiseConv2d <nni.nas.oneshot.pytorch.supermodule.operation.MixedDepthwiseConv2d>`
+     - Vision Building Blocks
+     - Weight-sharing depthwise convolution with searchable ``kernel_size`` for one-shot strategies
    * - :class:`Mutator <nni.nas.space.Mutator>`
      - :doc:`Mutator <mutator>`
      - Flexible mutations on graphs. :doc:`See tutorial here <mutator>`
+
+Vision Building Blocks
+----------------------
+
+NNI includes a library of mutable primitives targeted at **vision models** — particularly
+convolutional backbones and Vision Transformers (ViTs). They can be used directly in
+:class:`~nni.nas.nn.pytorch.ModelSpace` definitions and are compatible with all NNI strategies.
+
+.. list-table::
+   :header-rows: 1
+   :widths: auto
+
+   * - Class
+     - Brief Description
+   * - :class:`~nni.nas.nn.pytorch.MutablePatchEmbedding`
+     - Patch projection stem (``patch_size`` and ``embed_dim`` are searchable choices)
+   * - :class:`~nni.nas.oneshot.pytorch.supermodule.operation.MixedDepthwiseConv2d`
+     - Depthwise convolution with a searchable ``kernel_size``; requires ``groups == in_channels``
+
+For detailed usage examples and integration with hardware-aware search, see
+:doc:`vision_building_blocks`.

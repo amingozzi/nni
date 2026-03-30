@@ -10,6 +10,86 @@ Please review the ``registry`` in ``PruningSetting``, ``QuantizationSetting`` an
 It should be noted that ``DistillationSetting`` will automatically register a default output setting for all module types,
 which implies that distilling any module output is available by design.
 
+.. _compression-transformer-modules:
+
+Built-in Transformer and Modern Vision Module Support
+-----------------------------------------------------
+
+In addition to the classic CNN modules (``Conv2d``, ``BatchNorm2d``, ``Linear``, …), NNI now ships
+with pre-registered settings for the Transformer-era and modern vision modules listed below.
+No additional registration is needed to compress these layer types.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 15 15 20
+
+   * - Module Type
+     - Pruning
+     - Quantization
+     - Notes
+   * - ``torch.nn.LayerNorm``
+     - ✓
+     - ✓
+     - Weight and bias; used in every Transformer block
+   * - ``torch.nn.GroupNorm``
+     - ✓
+     - ✓
+     - Common in diffusion and segmentation models
+   * - ``torch.nn.InstanceNorm1d``
+     - ✓
+     - ✓
+     - Style-transfer and sequence normalisation
+   * - ``torch.nn.InstanceNorm2d``
+     - ✓
+     - ✓
+     - Image style-transfer normalisation
+   * - ``torch.nn.MultiheadAttention``
+     - ✓
+     - ✓
+     - ``in_proj_weight``, ``out_proj.weight``; head-level pruning granularity recommended
+   * - ``torch.nn.GELU``
+     - —
+     - ✓
+     - Output quantization; default activation in BERT / ViT / GPT-2
+   * - ``torch.nn.SiLU``
+     - —
+     - ✓
+     - Output quantization; used in EfficientNet, YOLOv8, and ViT variants
+   * - ``torch.nn.Hardswish``
+     - —
+     - ✓
+     - Output quantization; used in MobileNetV3
+
+Example — pruning a ViT encoder block including its LayerNorm layers:
+
+.. code-block:: python
+
+    from nni.compression.pytorch.pruning import L1NormPruner
+
+    config_list = [
+        # prune all Linear layers (Q, K, V projections, FFN) to 50 % sparsity
+        {'op_types': ['Linear'], 'sparse_ratio': 0.5},
+        # also prune LayerNorm weight to align with pruned feature dimensions
+        {'op_types': ['LayerNorm'], 'sparse_ratio': 0.5},
+    ]
+
+    pruner = L1NormPruner(model, config_list)
+    _, masks = pruner.compress()
+
+Example — quantizing a vision model that uses SiLU activations:
+
+.. code-block:: python
+
+    from nni.compression.pytorch.quantization import QATQuantizer
+
+    config_list = [
+        {'op_types': ['Conv2d', 'Linear'], 'quant_dtypes': ['int8']},
+        # quantize SiLU output to capture downstream activation statistics
+        {'op_types': ['SiLU'], 'target_names': ['_output_'], 'quant_dtypes': ['int8']},
+    ]
+
+    quantizer = QATQuantizer(model, config_list, training_step=training_step)
+
 Register Setting
 ----------------
 

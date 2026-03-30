@@ -269,8 +269,10 @@ class PrepareData(Dataset):
         pickle.dump(data_stats, open(path_data_stats, 'wb'))
 
     def load_data_stats(self, path_data_stats):
-
-        stats = pickle.load(open(path_data_stats, 'rb'))
+        # WARNING: pickle deserialization can execute arbitrary code.
+        # This file must originate from NNI itself on the same trusted machine.
+        with open(path_data_stats, 'rb') as _f:  # nosec B301
+            stats = pickle.load(_f)  # nosec B301
         self.path_data_stats = path_data_stats
 
         self.set_data_stats(np.asarray(stats['Xmn']), stats['sv1'],

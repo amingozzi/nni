@@ -140,6 +140,11 @@ class ProfilerPenalty(nn.Module):
                  nonlinear: Literal['linear', 'positive', 'negative', 'absolute'] = 'linear',
                  aggregate: Literal['add', 'mul'] = 'add'):
         super().__init__()
+        if baseline == 0:
+            raise ValueError(
+                'ProfilerPenalty: baseline must be non-zero to avoid division by zero '
+                'in the normalised penalty computation.'
+            )
         self.profiler = profiler
         self.scale = scale
         self.baseline = baseline

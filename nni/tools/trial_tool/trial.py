@@ -3,6 +3,7 @@
 
 import ctypes
 import os
+import re
 import sys
 import shlex
 import tarfile
@@ -91,6 +92,12 @@ class Trial:
 
         gpuIndices = self.data.get("gpuIndices")
         if (gpuIndices is not None):
+            # Validate that gpuIndices is a comma-separated list of non-negative integers
+            # to prevent shell injection via crafted gpuIndices values.
+            if not re.fullmatch(r'[0-9]+(,[0-9]+)*', str(gpuIndices)):
+                raise ValueError(
+                    f'Invalid gpuIndices value "{gpuIndices}": must be a comma-separated list of non-negative integers.'
+                )
             if sys.platform == "win32":
                 trial_command = 'set CUDA_VISIBLE_DEVICES="%s " && call %s' % (gpuIndices, trial_command)
             else:

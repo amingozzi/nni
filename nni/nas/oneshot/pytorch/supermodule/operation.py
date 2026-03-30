@@ -34,6 +34,7 @@ __all__ = [
     'MixedOperation',
     'MixedLinear',
     'MixedConv2d',
+    'MixedDepthwiseConv2d',
     'MixedBatchNorm2d',
     'MixedLayerNorm',
     'MixedMultiHeadAttention',
@@ -332,7 +333,7 @@ class MixedConv2d(MixedOperation, nn.Conv2d):
         if name not in ['in_channels', 'out_channels', 'groups', 'stride', 'kernel_size', 'padding', 'dilation']:
             raise NotImplementedError(f'Unsupported value choice on argument: {name}')
 
-        if name == ['kernel_size', 'padding']:
+        if name in ['kernel_size', 'padding']:
             all_sizes = set(traverse_all_options(mutable_expr))
             if any(isinstance(sz, tuple) for sz in all_sizes):
                 # maximum kernel should be calculated on every dimension
@@ -565,10 +566,10 @@ class MixedLayerNorm(MixedOperation, nn.LayerNorm):
             raise NotImplementedError(f'Unsupported value choice on argument: {name}')
         all_sizes = set(traverse_all_options(mutable_expr))
         if any(isinstance(sz, (tuple, list)) for sz in all_sizes):
-            # transpose
+            # transpose: convert list of shape tuples into per-dimension value lists
             all_sizes = list(zip(*all_sizes))
-            # maximum dim should be calculated on every dimension
-            return (max(self._to_tuple(sz)) for sz in all_sizes)
+            # return a tuple of maximum values across every dimension
+            return tuple(max(self._to_tuple(sz)) for sz in all_sizes)
         else:
             return max(all_sizes)
 
@@ -789,9 +790,87 @@ class MixedMultiHeadAttention(MixedOperation, nn.MultiheadAttention):
             return attn_output, attn_output_weights
 
 
+class MixedDepthwiseConv2d(MixedConv2d):
+    """Mixed depthwise-separable Conv2d operation.
+
+    A specialisation of :class:`MixedConv2d` where ``groups`` is always equal
+    to ``in_channels``.  This is the building block of MobileNet-style and
+    EfficientNet-style architectures and is particularly useful for
+    hardware-aware NAS because depth-wise computations have a very different
+    latency profile from regular convolutions.
+
+    Supported mutable arguments are the same as :class:`MixedConv2d` except
+    that ``groups`` must **not** be set manually — it is derived automatically
+    from ``in_channels``.
+
+    Parameters
+    ----------
+    Identical to :class:`~nni.nas.nn.pytorch.MutableConv2d` with the
+    restriction that ``groups`` is fixed to ``in_channels`` at init time.
+
+    Warnings
+    --------
+    ``out_channels`` may differ from ``in_channels`` (this is a grouped conv,
+    not strictly depth-wise separable unless followed by a point-wise step).
+    Set ``out_channels`` equal to ``in_channels`` when you want a standard
+    depth-wise layer.
+    """
+
+    # Re-use the same bound_type as MixedConv2d.  The distinction is purely
+    # in how groups is handled at super_init_argument and freeze time.
+    bound_type = MutableConv2d
+
+    def super_init_argument(self, name: str, mutable_expr: MutableExpression):
+        if name == 'groups':
+            # groups must track in_channels exactly for a depthwise conv.
+            # Return the maximum in_channels so the super-kernel is allocated
+            # at the right size; the actual groups value is enforced at
+            # forward time in freeze_weight.
+            if 'in_channels' in self.mutable_arguments:
+                return max(traverse_all_options(self.mutable_arguments['in_channels']))
+            return max(traverse_all_options(mutable_expr))
+        return super().super_init_argument(name, mutable_expr)
+
+    def freeze_weight(
+        self,
+        in_channels: int_or_int_dict,
+        out_channels: int_or_int_dict,
+        kernel_size: scalar_or_scalar_dict[_int_or_tuple],
+        groups: int_or_int_dict,
+        **kwargs,
+    ):
+        # Enforce groups == in_channels regardless of what was sampled so that
+        # this always behaves as a true depth-wise convolution.
+        effective_groups = in_channels
+        return super().freeze_weight(
+            in_channels, out_channels, kernel_size, effective_groups, **kwargs
+        )
+
+    def forward_with_args(
+        self,
+        in_channels: int_or_int_dict,
+        out_channels: int_or_int_dict,
+        kernel_size: scalar_or_scalar_dict[_int_or_tuple],
+        stride: _int_or_tuple,
+        padding: scalar_or_scalar_dict[_int_or_tuple],
+        dilation: int,
+        groups: int_or_int_dict,
+        inputs: torch.Tensor,
+    ) -> torch.Tensor:
+        # Substitute groups with in_channels before delegating to the parent
+        # so that the convolution is always depth-wise.
+        return super().forward_with_args(
+            in_channels, out_channels, kernel_size,
+            stride, padding, dilation,
+            in_channels,   # override groups
+            inputs,
+        )
+
+
 NATIVE_MIXED_OPERATIONS: list[Type[MixedOperation]] = [
     MixedLinear,
     MixedConv2d,
+    MixedDepthwiseConv2d,
     MixedBatchNorm2d,
     MixedLayerNorm,
     MixedMultiHeadAttention,

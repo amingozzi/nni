@@ -37,6 +37,19 @@ class NNIRestHandler {
 
         router.use((req: Request, res: Response, next) => {
             this.log.debug(`${req.method}: ${req.url}: body:`, req.body);
+
+            // Restrict CORS to localhost origins only.  The NNI REST API is a
+            // local service and must not be reachable from arbitrary web origins.
+            const origin = req.headers['origin'];
+            if (origin !== undefined) {
+                const url = new URL(origin);
+                const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+                if (isLocalhost) {
+                    res.header('Access-Control-Allow-Origin', origin);
+                }
+                // Browsers that send a non-localhost Origin will receive no
+                // Access-Control-Allow-Origin and the request will be blocked.
+            }
             res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
             res.header('Access-Control-Allow-Methods', 'PUT,POST,GET,DELETE,OPTIONS');
 
@@ -183,7 +196,7 @@ class NNIRestHandler {
                     // Resume experiment is a step of initialization, so any exception thrown is a fatal
                     this.handleError(err, res);
                 });
-            } 
+            }
         });
     }
 
@@ -212,7 +225,7 @@ class NNIRestHandler {
                     // setClusterMetata is a step of initialization, so any exception thrown is a fatal
                     this.handleError(NNIError.FromError(err as any), res, true);
                 }
-        });
+            });
     }
 
     private listTrialJobs(router: Router): void {
@@ -242,7 +255,7 @@ class NNIRestHandler {
     private addTrialJob(router: Router): void {
         router.post('/trial-jobs', async (req: Request, res: Response) => {
             this.nniManager.addCustomizedTrialJob(JSON.stringify(req.body)).then((sequenceId: number) => {
-                res.send({sequenceId});
+                res.send({ sequenceId });
             }).catch((err: Error) => {
                 this.handleError(err, res);
             });
@@ -292,7 +305,7 @@ class NNIRestHandler {
     }
 
     private getTrialFile(router: Router): void {
-        router.get('/trial-file/:id/:filename', async(req: Request, res: Response) => {
+        router.get('/trial-file/:id/:filename', async (req: Request, res: Response) => {
             const filename = req.params['filename'];
             this.nniManager.getTrialFile(req.params['id'], filename).then((content: Buffer | string) => {
                 const contentType = content instanceof Buffer ? 'application/octet-stream' : 'text/plain';

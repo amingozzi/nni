@@ -943,8 +943,15 @@ def _json_tricks_any_object_decode(obj: Dict[str, Any]) -> Any:
 
 
 def _wrapped_cloudpickle_loads(b: bytes) -> Any:
+    """Deserialise a cloudpickle byte-string.
+
+    .. warning::
+        Only call this with bytes that were serialised by NNI itself on the same
+        trusted process or machine.  Cloudpickle can execute arbitrary code upon
+        deserialisation of untrusted data.
+    """
     try:
-        return cloudpickle.loads(b)
+        return cloudpickle.loads(b)  # nosec B301
     except TypeError:
         warnings.warn('TypeError encountered during deserializing object. This could be caused by '
                       'inconsistency between Python versions where dump and load happens.')

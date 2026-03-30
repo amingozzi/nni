@@ -39,10 +39,18 @@ def pickle_dump(obj, file_path, protocol=4):
 
 
 def pickle_load(file_path):
+    """Load a pickle file from *trusted* local storage.
+
+    .. warning::
+        ``pickle`` deserialization can execute arbitrary code.  Only load files
+        that were produced by NNI itself on the same machine.  Never load files
+        originating from untrusted or remote sources.
+    """
     load_path = Path(file_path).absolute()
-    assert load_path.exists(), f'{file_path} is not exist.'
+    if not load_path.exists():
+        raise FileNotFoundError(f'Pickle file not found: {file_path}')
     with load_path.open(mode='rb') as f:
-        return pickle.load(f)
+        return pickle.load(f)  # nosec B301 — intentional, load_path is NNI-controlled
 
 
 def _default_get_rngs_state():

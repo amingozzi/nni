@@ -82,14 +82,15 @@ def get_user():
         return os.environ['USER']
 
 def generate_temp_dir():
-    '''generate a temp folder'''
-    def generate_folder_name():
-        return os.path.join(tempfile.gettempdir(), 'nni', ''.join(random.sample(string.ascii_letters + string.digits, 8)))
-    temp_dir = generate_folder_name()
-    while os.path.exists(temp_dir):
-        temp_dir = generate_folder_name()
-    os.makedirs(temp_dir)
-    return temp_dir
+    '''Generate a temp folder atomically using tempfile.mkdtemp().
+
+    Using mkdtemp avoids the TOCTOU race condition that was present in the previous
+    implementation that generated a path and then created it in two separate steps.
+    '''
+    import tempfile
+    base = os.path.join(tempfile.gettempdir(), 'nni')
+    os.makedirs(base, exist_ok=True)
+    return tempfile.mkdtemp(dir=base)
 
 class SimplePreemptiveLock(filelock.SoftFileLock):
     '''this is a lock support check lock expiration, if you do not need check expiration, you can use SoftFileLock'''

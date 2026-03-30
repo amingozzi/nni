@@ -156,6 +156,13 @@ class PruningSetting(ModuleSetting):
         'BatchNorm1d': default_setting,
         'BatchNorm2d': default_setting,
         'BatchNorm3d': default_setting,
+        # Normalization layers used in Transformers / ConvNeXt
+        'LayerNorm': default_setting,
+        'GroupNorm': default_setting,
+        'InstanceNorm1d': default_setting,
+        'InstanceNorm2d': default_setting,
+        # Attention used in ViT / BERT / GPT-style models
+        'MultiheadAttention': default_setting,
     }
 
 
@@ -218,6 +225,17 @@ class QuantizationSetting(ModuleSetting):
         'Hardtanh': activation_setting,
         'MaxPool2d': activation_setting,
         'BatchNorm2d': default_setting,
+        # Normalization layers used in Transformers / ConvNeXt
+        'LayerNorm': default_setting,
+        'GroupNorm': default_setting,
+        'InstanceNorm1d': default_setting,
+        'InstanceNorm2d': default_setting,
+        # Attention used in ViT / BERT / GPT-style models
+        'MultiheadAttention': default_setting,
+        # Activation functions common in modern vision models
+        'GELU': activation_setting,
+        'SiLU': activation_setting,
+        'Hardswish': activation_setting,
     }
 
 

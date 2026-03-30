@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "app-module-path": "^2.2.0",
-    "azure-storage": "^2.10.7",
+    "@azure/storage-blob": "^12.17.0",
     "child-process-promise": "^2.2.1",
     "express": "^4.18.2",
     "express-joi-validator": "^2.0.1",
@@ -26,7 +26,7 @@
     "python-shell": "^3.0.0",
     "rx": "^4.1.0",
     "sqlite3": "^5.1.6",
-    "ssh2": "^1.11.0",
+    "ssh2": "^1.14.0",
     "stream-buffers": "^3.0.2",
     "tail-stream": "^0.3.4",
     "tar": "^6.1.13",

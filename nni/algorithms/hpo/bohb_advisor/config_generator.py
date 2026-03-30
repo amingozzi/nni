@@ -240,7 +240,16 @@ class CG_BOHB:
         for i in range(array.shape[0]):
             datum = np.copy(array[i])
             nan_indices = np.argwhere(np.isnan(datum)).flatten()
+            _max_impute_iters = array.shape[0] + 1  # bound: at most one pass over all rows per NaN slot
+            _iters = 0
             while np.any(nan_indices):
+                if _iters >= _max_impute_iters:
+                    # Fallback: fill remaining NaN slots with a random valid value for their type
+                    for nan_idx in nan_indices:
+                        t = self.vartypes[nan_idx]
+                        datum[nan_idx] = np.random.rand() if t == 0 else np.random.randint(t)
+                    break
+                _iters += 1
                 nan_idx = nan_indices[0]
                 valid_indices = np.argwhere(np.isfinite(array[:, nan_idx])).flatten()
                 if len(valid_indices) > 0:

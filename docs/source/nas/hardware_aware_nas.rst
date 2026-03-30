@@ -66,6 +66,15 @@ The first approach is to add a special regularization term to the loss within on
     penalty = ExpectationProfilerPenalty(profiler, 300e6)  # 300M is the expected profiler here. Exceeding it will be penalized.
     strategy = ProxylessNAS(penalty=penalty)
 
+.. important::
+
+   The ``baseline`` argument of :class:`~nni.nas.oneshot.pytorch.profiler.ExpectationProfilerPenalty`
+   and :class:`~nni.nas.oneshot.pytorch.profiler.SampleProfilerPenalty` must be **non-zero**.
+   A zero baseline causes a division-by-zero error at penalty computation time.  The baseline
+   represents the target profiler value (e.g., 300e6 FLOPs) — passing ``0`` makes the scaled
+   penalty undefined.  If you want to disable the penalty entirely, remove it from the strategy
+   rather than setting ``baseline=0``.
+
 Another approach is similar to what we've done for multi-trial strategies: to directly prevent models out of constraints from being sampled. To do this, use :class:`~nni.nas.oneshot.pytorch.profiler.RangeProfilerFilter`. Example::
 
     from nni.nas.strategy import ENAS

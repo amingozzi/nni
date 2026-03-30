@@ -14,12 +14,20 @@ def check_output_command(file_path, head=None, tail=None):
     """call check_output command to read content from a file"""
     if os.path.exists(file_path):
         if sys.platform == 'win32':
-            cmds = ['powershell.exe', 'type', file_path]
+            # Use PowerShell with shell=False to avoid cmd.exe shell injection.
+            # Single-quoted PS strings are literal (no variable expansion); embed a single
+            # quote by doubling it.
+            escaped = file_path.replace("'", "''")
             if head:
-                cmds += ['|', 'select', '-first', str(head)]
+                ps_cmd = f"Get-Content '{escaped}' | Select-Object -First {int(head)}"
             elif tail:
-                cmds += ['|', 'select', '-last', str(tail)]
-            return check_output(cmds, shell=True).decode('utf-8')
+                ps_cmd = f"Get-Content '{escaped}' | Select-Object -Last {int(tail)}"
+            else:
+                ps_cmd = f"Get-Content '{escaped}'"
+            return check_output(
+                ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', ps_cmd],
+                shell=False
+            ).decode('utf-8')
         else:
             cmds = ['cat', file_path]
             if head:

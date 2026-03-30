@@ -25,6 +25,12 @@ Model space
 .. autoclass:: nni.nas.nn.pytorch.MutableModule
    :members:
 
+Vision Building Blocks
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: nni.nas.nn.pytorch.MutablePatchEmbedding
+   :members:
+
 Model Space Hub
 ---------------
 
