@@ -334,7 +334,7 @@ class Filter(StrategyMiddleware):
         self.engine.register_model_event_callback(event_type, callback)
 
     def unregister_model_event_callback(self, event_type: ModelEventType, callback: Callable[[ModelEvent], None]) -> None:
-        super().register_model_event_callback(event_type, callback)
+        super().unregister_model_event_callback(event_type, callback)
         self.engine.unregister_model_event_callback(event_type, callback)
 
 

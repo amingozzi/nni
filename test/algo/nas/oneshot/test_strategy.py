@@ -16,6 +16,7 @@ from nni.nas.space import RawFormatModelSpace, model_context
 from nni.nas.evaluator.pytorch.lightning import Classification, Regression, ClassificationModule, DataLoader
 from nni.nas.nn.pytorch import LayerChoice, ModelSpace
 from nni.nas.oneshot.pytorch import DartsLightningModule
+from nni.nas.oneshot.pytorch.sampling import RandomSamplingLightningModule
 
 from ut.nas.nn.models import MODELS
 from .test_utils import RandomDataset
@@ -168,6 +169,29 @@ def test_enas(name, expect_success, multi_gpu, warmup_epochs):
 def test_random(name, expect_success):
     model, evaluator = _model_and_evaluator(name, False)
     _test_strategy(strategy.RandomOneShot(), model, evaluator, expect_success)
+
+
+def test_random_sampling_filter():
+    samples = iter([{'layer': 0}, {'layer': 1}])
+    module = RandomSamplingLightningModule(
+        LightningModule(),
+        filter=lambda sample: sample['layer'] == 1
+    )
+
+    assert module._repeat_until_valid(lambda: next(samples)) == {'layer': 1}
+    assert module._sampling_attempt == 2
+
+
+def test_random_sampling_filter_patience():
+    module = RandomSamplingLightningModule(
+        LightningModule(),
+        filter=lambda sample: False
+    )
+    module._sampling_patience = 3
+
+    with pytest.raises(RuntimeError, match='Failed to sample a valid architecture after 3 attempts'):
+        module._repeat_until_valid(lambda: {'layer': 0})
+    assert module._sampling_attempt == 3
 
 
 @pytest.mark.parametrize('name, expect_success', model_list_if_support_value_choice)
