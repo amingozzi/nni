@@ -62,6 +62,15 @@ To use an exploration strategy, users simply instantiate an exploration strategy
 
 Rather than using :class:`strategy.Random <nni.nas.strategy.Random>`, users can choose one of the strategies from the table above.
 
+To filter out candidates that do not meet custom conditions before training, compose a multi-trial strategy with
+:class:`~nni.nas.strategy.middleware.Filter`::
+
+   from nni.nas.strategy.middleware import Chain, Filter
+   exploration_strategy = Chain(
+      strategy.Random(),
+      Filter(lambda model: model.sample['layer'] != 'skip')
+   )
+
 .. _one-shot-nas:
 
 One-shot strategy

@@ -81,31 +81,34 @@ def test_filter(named_model_space, engine, strategy, metric_for_invalid, retain_
     name, model_space = named_model_space
 
     if strategy == 'grid':
-        strategy = GridSearch(dedup=False)
+        base_strategy = GridSearch(dedup=False)
     elif strategy == 'random':
-        strategy = Random(dedup=False)
+        base_strategy = Random(dedup=False)
     elif strategy == 'evolution':
-        strategy = RegularizedEvolution(dedup=False)
+        base_strategy = RegularizedEvolution(dedup=False)
     elif strategy == 'rl':
-        strategy = PolicyBasedRL(policy_fn=naive_policy)
+        if name == 'numerical':
+            pytest.skip('PolicyBasedRL only supports categorical spaces.')
+        base_strategy = PolicyBasedRL(policy_fn=naive_policy)
 
     def filter_fn(model):
         return model.sample['a'] <= 2
 
     strategy = Chain(
-        Random(dedup=False),
+        base_strategy,
         Filter(filter_fn, metric_for_invalid=metric_for_invalid, retain_history=retain_history)
     )
 
     if metric_for_invalid is None:
         assert repr(strategy) == f"""Chain(
-  Random(dedup=False),
+  {base_strategy!r},
   Filter(filter_fn={filter_fn})
 )"""
 
     strategy(model_space, engine)
     assert strategy._status == StrategyStatus.SUCCEEDED
     assert all(not v for v in engine._callbacks.values())
+    assert all(not v for v in strategy[1]._callbacks.values())
 
     if metric_for_invalid is not None:
         any_invalid = False

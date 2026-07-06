@@ -45,7 +45,7 @@ When using multi-trial strategies, the most intuitive approach to combine a hard
 
     strategy = Chain(
         Random(),
-        Filter(lambda sample: profiler.profile(sample) < 300e6)
+        Filter(lambda model: profiler.profile(model.sample) < 300e6)
     )
 
 The example here uses a random strategy to randomly generate models, but the FLOPs is restricted to less than 300M. Models over the limitation will be directly discarded without training. :class:`~nni.nas.strategy.middleware.Filter` can be also set to a mode to return a bad metric for models out of constraint, so that the strategy can learn to avoid sampling such models. The profiler can also be replaced with any profiler listed above or customized.
@@ -57,14 +57,14 @@ One-shot strategy can be also combined with metrics on hardware. There are usual
 
 The first approach is to add a special regularization term to the loss within one-shot strategy, penalizing the sampling of models that does not fit the constraints. To do this, a penalty term (either :class:`~nni.nas.oneshot.pytorch.profiler.ExpectationProfilerPenalty` for differentiable algorithms, or :class:`~nni.nas.oneshot.pytorch.profiler.SampleProfilerPenalty` for sampling-based algorithms). Example below::
 
-    from nni.nas.strategy import ProxylessNAS
+    from nni.nas.strategy import Proxyless
     from nni.nas.oneshot.pytorch.profiler import ExpectationProfilerPenalty
     # For sampling-based algorithms like ENAS, use `SampleProfilerPenalty` here.
     # Please see the document for each algorithm for the type of penalties they have supported.
 
     profiler = FlopsProfiler(model_space, dummy_input)
     penalty = ExpectationProfilerPenalty(profiler, 300e6)  # 300M is the expected profiler here. Exceeding it will be penalized.
-    strategy = ProxylessNAS(penalty=penalty)
+    strategy = Proxyless(penalty=penalty)
 
 .. important::
 
@@ -77,12 +77,12 @@ The first approach is to add a special regularization term to the loss within on
 
 Another approach is similar to what we've done for multi-trial strategies: to directly prevent models out of constraints from being sampled. To do this, use :class:`~nni.nas.oneshot.pytorch.profiler.RangeProfilerFilter`. Example::
 
-    from nni.nas.strategy import ENAS
+    from nni.nas.strategy import RandomOneShot
     from nni.nas.oneshot.pytorch.profiler import RangeProfilerFilter
 
     profiler = FlopsProfiler(model_space, dummy_input)
-    penalty = RangeProfilerFilter(profiler, 200e6, 300e6)  # Only flops between 200M and 300M are considered legal.
-    strategy = ENAS(filter=filter)
+    filter_ = RangeProfilerFilter(profiler, 200e6, 300e6)  # Only flops between 200M and 300M are considered legal.
+    strategy = RandomOneShot(filter=filter_)
 
 .. tip:: The penalty and filter here are specialized for one-shot strategies, please do not use them in multi-trial strategies.
 
