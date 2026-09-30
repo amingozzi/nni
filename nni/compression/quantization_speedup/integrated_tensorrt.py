@@ -315,7 +315,7 @@ class ModelSpeedupTensorRT(BaseModelSpeedup):
         dummy_input = torch.randn(self.input_shape).to(device)
         self.model.to(device)
         torch.onnx.export(self.model, dummy_input, self.onnx_path, verbose=False,
-            input_names=self.input_names, output_names=self.output_names, export_params=True)
+            input_names=self.input_names, output_names=self.output_names, export_params=True, dynamo=False)
         # build endine
         self.engine = build_engine_with_calib(self.onnx_path, calib, self.input_shape)
 

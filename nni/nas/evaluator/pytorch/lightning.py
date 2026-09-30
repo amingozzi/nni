@@ -167,7 +167,7 @@ class Lightning(MutableEvaluator):
         self.module.set_model(model)
         if self.datamodule is not None:
             _logger.info('Fit with datamodule. Train and valid dataloaders will be ignored.')
-            rv = self.trainer.fit(self.module, self.datamodule, **self.fit_kwargs)
+            rv = self.trainer.fit(self.module, datamodule=self.datamodule, **self.fit_kwargs)
         elif self.train_dataloaders is None and self.val_dataloaders is not None:
             _logger.info('Only validation dataloaders are available. Skip to validation.')
             rv = self.trainer.validate(self.module, self.val_dataloaders, **self.fit_kwargs)
@@ -259,7 +259,7 @@ class SupervisedLearningModule(LightningModule):
         if self.export_onnx is not None:
             self.export_onnx.parent.mkdir(exist_ok=True)
             try:
-                self.to_onnx(self.export_onnx, x, export_params=True)
+                self.to_onnx(self.export_onnx, x, export_params=True, dynamo=False)
             except RuntimeError as e:
                 warnings.warn(f'ONNX conversion failed. As a result, you might not be able to use visualization. Error message: {e}')
             self.export_onnx = None

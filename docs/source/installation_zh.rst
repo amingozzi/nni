@@ -3,7 +3,7 @@
 安装 NNI
 ========
 
-NNI 依赖于 Python 3.7 或以上版本。
+此源码版本的 NNI 依赖于 Python 3.10 或以上版本。
 
 您可以通过以下三种方式之一安装 NNI：
 
@@ -26,7 +26,7 @@ NNI 为 x86-64 平台提供预编译的安装包，您可以使用 pip�
 
 .. code-block:: text
 
-    pip install --latest nni
+    pip install --upgrade nni
 
 安装完成后，请运行以下命令进行检查：
 
@@ -47,7 +47,7 @@ NNI 为 x86-64 平台提供预编译的安装包，您可以使用 pip�
 编译安装
 --------
 
-NNI 项目使用 `GitHub <https://github.com/microsoft/nni>`__ 托管源代码。
+此源码版本的 NNI 项目使用 `GitHub <https://github.com/amingozzi/nni>`__ 托管源代码。
 
 NNI 对 ARM64 平台（包括苹果 M1）提供实验性支持，如果您希望在此类平台上使用 NNI，请从源代码编译安装。
 

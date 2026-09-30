@@ -202,6 +202,27 @@ def test_choice_in_classification():
     evaluator.freeze({})
 
 
+def test_supervised_onnx_export(tmp_path):
+    import onnx
+    from nni.nas.evaluator.pytorch import Regression
+
+    inputs = torch.randn(4, 3)
+    targets = torch.randn(4, 2)
+    path = tmp_path / 'model.onnx'
+    evaluator = Regression(
+        val_dataloaders=DataLoader(TensorDataset(inputs, targets), batch_size=2),
+        export_onnx=path, logger=False, enable_checkpointing=False,
+        enable_progress_bar=False, enable_model_summary=False,
+    )
+    evaluator.evaluate(nn.Linear(3, 2))
+    assert path.is_file()
+    exported = onnx.load(path)
+    onnx.checker.check_model(exported)
+    assert len(exported.graph.input) == 1
+    assert len(exported.graph.output) == 1
+    assert exported.graph.output[0].type.tensor_type.shape.dim[-1].dim_value == 2
+
+
 def test_mock_trial_api(caplog):
     from nni.nas.space import RawFormatModelSpace, BaseModelSpace
 

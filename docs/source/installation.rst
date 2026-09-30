@@ -1,7 +1,7 @@
 Install NNI
 ===========
 
-NNI requires Python >= 3.7.
+This source tree requires Python >= 3.10.
 It is tested and supported on Ubuntu >= 18.04,
 Windows 10 >= 21H2, and macOS >= 11.
 
@@ -26,7 +26,7 @@ Or to upgrade to latest version:
 
 .. code-block:: text
 
-    pip install --latest nni
+    pip install --upgrade nni
 
 You can check installation with:
 
@@ -47,7 +47,7 @@ In this case you need to add pip script directory to ``PATH``:
 Installing from Source Code
 ---------------------------
 
-NNI hosts source code on `GitHub <https://github.com/microsoft/nni>`__.
+This fork hosts source code on `GitHub <https://github.com/amingozzi/nni>`__.
 
 NNI has experimental support for ARM64 CPUs, including Apple M1.
 It requires to install from source code.
@@ -67,6 +67,42 @@ NNI provides official Docker image on `Docker Hub <https://hub.docker.com/r/msra
 
 Installing Extra Dependencies
 -----------------------------
+
+For this source checkout, install the framework dependencies with an editable install:
+
+.. code-block:: text
+
+    python -m pip install -e ".[nas]"
+
+The ``nas`` extra includes PyTorch, torchvision, PyTorch Lightning, torchmetrics, and TensorBoard.
+Use ``.[compression]`` for native PyTorch compression without Lightning, or ``.[pytorch]``
+for PyTorch and torchvision only. These extras require PyTorch >= 2.6 and Lightning >= 2.6
+where applicable; the current compatibility targets are PyTorch 2.14.0 and Lightning 2.6.6.
+NNI's Lightning integrations use the ``pytorch_lightning`` namespace.
+See the `Lightning 2.6 training API
+<https://lightning.ai/docs/pytorch/2.6.6/common/trainer.html>`__.
+
+For reproducible framework versions:
+
+.. code-block:: text
+
+    python -m pip install -r dependencies/pytorch.txt
+
+Choose the CPU or CUDA wheels using the `official PyTorch installation selector
+<https://pytorch.org/get-started/locally/>`__ before installing NNI.
+The optional OpenMMLab and TensorRT extensions must match the chosen PyTorch/CUDA build;
+they are not covered by the CPU compatibility workflow.
+
+``TorchSerializer`` loads trusted strategy checkpoints with ``weights_only=False`` so that
+NumPy random states and other Python objects can be restored. For tensor-only checkpoints,
+use ``TorchSerializer(weights_only=True)``. Never load an untrusted pickle checkpoint.
+See `PyTorch serialization semantics
+<https://docs.pytorch.org/docs/2.14/notes/serialization.html>`__.
+
+NNI's existing ONNX visualization, latency profiling, and TensorRT export paths explicitly
+use ``dynamo=False`` to retain their TorchScript exporter behavior. The new exporter has
+different graph and dependency requirements; see `torch.onnx
+<https://docs.pytorch.org/docs/2.14/onnx.html>`__.
 
 Some built-in algorithms of NNI requires extra packages.
 Use ``nni[<algorithm-name>]`` to install their dependencies.

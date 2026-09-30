@@ -127,7 +127,8 @@ def torch_to_onnx(model, config, input_shape, model_path, input_names, output_na
     dummy_input = torch.randn(input_shape)
     dummy_input = dummy_input.to(device)
     model.to(device)
-    torch.onnx.export(model, dummy_input, model_path, verbose=False, input_names=input_names, output_names=output_names, export_params=True)
+    torch.onnx.export(model, dummy_input, model_path, verbose=False, input_names=input_names,
+                      output_names=output_names, export_params=True, dynamo=False)
     # Load onnx model
     model_onnx = onnx.load(model_path)
     model_onnx, onnx_config = unwrapper(model_onnx, index2name, config)

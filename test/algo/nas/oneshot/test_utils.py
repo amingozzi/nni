@@ -86,6 +86,19 @@ def test_concat_loader_nested():
             assert 1 <= loader_index <= 2
 
 
+def test_concat_loader_limits_and_reset():
+    from nni.nas.oneshot.pytorch._dataloader import ConcatLoader
+
+    loader = ConcatLoader({'a': range(5), 'b': range(8)})
+    loader.limits = [2, 3]
+    assert len(loader) == 5
+    expected = [(0, 0, 0), (1, 1, 0), (0, 0, 1), (1, 1, 1), (2, 2, 1)]
+    assert list(loader) == expected
+    loader.reset()
+    assert len(loader) == 5
+    assert list(loader) == expected
+
+
 @pytest.mark.parametrize('use_distributed_sampler', [False, True])
 @pytest.mark.parametrize('is_min_size_mode', [True])
 @pytest.mark.parametrize('num_devices', ['auto', 1, 3, 10])

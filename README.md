@@ -29,6 +29,21 @@ NNI automates feature engineering, neural architecture search, hyperparameter tu
 
 ## Installation
 
+This fork's modernized source tree requires **Python 3.10+** and targets
+**PyTorch 2.14.0**, **torchvision 0.29.0**, and **PyTorch Lightning 2.6.6**.
+The published upstream `nni` package does not include these changes; install this checkout
+using the [source build instructions](docs/source/notes/build_from_source.rst).
+Framework versions for reproducible development are in `dependencies/pytorch.txt`.
+
+The modernization fixes framework imports, NAS checkpoint recovery, optimizer reconstruction,
+Lightning training controls, pruning state restoration, and fresh manager/Web UI builds.
+The compatibility workflow covers CPU NAS/compression and the Python SDK on Linux and Windows.
+CUDA/distributed training, TensorRT/OpenMMLab integrations, and legacy cloud training services
+still need dedicated qualification. Reinforcement-learning strategies currently require
+Tianshou 0.x; migration to its newer APIs is separate work.
+The older Python typing/lint baseline also retains pre-existing findings; this pass does
+not claim that every legacy integration or static-analysis check is clean.
+
 See the [NNI installation guide](https://nni.readthedocs.io/en/stable/installation.html) to install from pip, or build from source.
 
 To install the current release:

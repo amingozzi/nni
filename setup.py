@@ -54,18 +54,16 @@ The platform may also be "macosx_10_9_x86_64" or "win_amd64".
 or setuptools cannot locate JS files which should be packed into wheel.
 """
 
-from distutils.cmd import Command
-from distutils.command.build import build
-from distutils.command.clean import clean
 import glob
 import os
 import shutil
 import sys
 
 import setuptools
+from setuptools import Command
+from setuptools.command.build import build
+from distutils.command.clean import clean
 from setuptools.command.develop import develop
-
-import setup_ts
 
 release = os.environ.get('NNI_RELEASE')
 
@@ -110,6 +108,7 @@ def _setup():
         ],
 
         packages = _find_python_packages(),
+        package_dir = {'': '.'},
         package_data = {
             'nni': _find_requirements_txt() + _find_default_config(),  # setuptools issue #1806
             'nni_assets': _find_asset_files(),
@@ -118,9 +117,23 @@ def _setup():
 
         data_files = _get_data_files(),
 
-        python_requires = '>=3.7',
+        python_requires = '>=3.10',
         install_requires = _read_requirements_txt('dependencies/required.txt'),
         extras_require = {
+            'pytorch': [
+                'torch>=2.6,<3',
+                'torchvision>=0.21,<1',
+            ],
+            'nas': [
+                'torch>=2.6,<3',
+                'torchvision>=0.21,<1',
+                'pytorch-lightning>=2.6,<3',
+                'torchmetrics>=1.0,<2',
+                'tensorboard>=2.13',
+            ],
+            'compression': [
+                'torch>=2.6,<3',
+            ],
             'Anneal': _read_requirements_txt('dependencies/required_extra.txt', 'Anneal'),
             'SMAC': _read_requirements_txt('dependencies/required_extra.txt', 'SMAC'),
             'BOHB': _read_requirements_txt('dependencies/required_extra.txt', 'BOHB'),
@@ -128,8 +141,6 @@ def _setup():
             'DNGO': _read_requirements_txt('dependencies/required_extra.txt', 'DNGO'),
             'all': _read_requirements_txt('dependencies/required_extra.txt'),
         },
-        setup_requires = ['requests'],
-
         entry_points = {
             'console_scripts' : [
                 'nnictl = nni.tools.nnictl.nnictl:parse_args'
@@ -154,9 +165,12 @@ def _get_data_files():
 def _find_python_packages():
     packages = []
     for dirpath, dirnames, filenames in os.walk('nni'):
-        if '/__pycache__' not in dirpath and '/.mypy_cache' not in dirpath and '/default_config' not in dirpath:
-            packages.append(dirpath.replace('/', '.'))
-    return sorted(packages) + ['nni_assets', 'nni_node']
+        dirnames[:] = [name for name in dirnames if name not in {'__pycache__', '.mypy_cache', 'default_config'}]
+        packages.append(dirpath.replace(os.sep, '.'))
+    packages.append('nni_assets')
+    if os.path.isdir('nni_node'):
+        packages.append('nni_node')
+    return sorted(packages)
 
 def _find_requirements_txt():
     requirement_files = []
@@ -221,19 +235,18 @@ class BuildTs(Command):
         pass
 
     def run(self):
+        import setup_ts
         #check_jupyter_lab_version()
         setup_ts.build(release)
 
 class Build(build):
     def run(self):
-        if not release:
-            sys.exit('Please set environment variable "NNI_RELEASE=<release_version>"')
-
         #check_jupyter_lab_version()
 
-        if os.path.islink('nni_node/main.js'):
+        if release and os.path.islink('nni_node/main.js'):
             sys.exit('A development build already exists. Please uninstall NNI and run "python3 setup.py clean".')
-        open('nni/version.py', 'w').write(f"__version__ = '{release}'")
+        with open('nni/version.py', 'w', encoding='utf-8') as version_file:
+            version_file.write(f"__version__ = '{release or '999.dev0'}'")
         super().run()
 
 class Develop(develop):
@@ -257,6 +270,7 @@ class Develop(develop):
         super().finalize_options()
 
     def run(self):
+        import setup_ts
         open('nni/version.py', 'w').write("__version__ = '999.dev0'")
         if not self.skip_ts:
             setup_ts.build(release=None)
@@ -269,6 +283,7 @@ class Clean(clean):
         super().finalize_options()
 
     def run(self):
+        import setup_ts
         super().run()
         setup_ts.clean()
         _clean_temp_files()

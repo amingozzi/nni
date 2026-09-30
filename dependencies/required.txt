@@ -3,8 +3,7 @@ cloudpickle
 colorama
 filelock < 3.12
 json_tricks >= 3.15.5
-numpy < 1.22 ; python_version < "3.8"
-numpy ; python_version >= "3.8"
+numpy >= 1.23
 nvidia-ml-py
 packaging
 pandas
@@ -16,9 +15,8 @@ requests
 responses
 schema
 scikit-learn >= 0.24.1
-scipy < 1.8 ; python_version < "3.8"
-scipy ; python_version >= "3.8"
+scipy >= 1.9
 tqdm
-typeguard >= 3.0.0, < 4.1.3
+typeguard >= 4.5.0, < 5
 typing_extensions >= 4.7.0
 websockets >= 10.1

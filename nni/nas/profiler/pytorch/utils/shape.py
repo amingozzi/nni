@@ -462,11 +462,12 @@ def submodule_input_output_shapes(
     """
     handles, shapes = _register_shape_inference_hooks(model, skip_toplevel=False, is_leaf=is_leaf)
 
-    with torch.no_grad():
-        model(*args, **kwargs)
-
-    for handle in handles:
-        handle.remove()
+    try:
+        with torch.no_grad():
+            model(*args, **kwargs)
+    finally:
+        for handle in handles:
+            handle.remove()
 
     return shapes
 
@@ -494,13 +495,13 @@ def shape_inference(module: nn.Module, *args: ShapeTensor,
     """
     handles, _ = _register_shape_inference_hooks(module, is_leaf=is_leaf)
 
-    with torch.no_grad():
-        outputs = module(*args, **kwargs)
-    result = _module_shape_inference_impl(module, outputs, *args, **kwargs)
-
-    for handle in handles:
-        handle.remove()
-    return result
+    try:
+        with torch.no_grad():
+            outputs = module(*args, **kwargs)
+        return _module_shape_inference_impl(module, outputs, *args, **kwargs)
+    finally:
+        for handle in handles:
+            handle.remove()
 
 
 def module_shape_inference_hook(module: nn.Module, input: Any, output: Any,

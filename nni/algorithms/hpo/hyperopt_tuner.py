@@ -19,6 +19,13 @@ from nni.utils import NodeType, OptimizeMode, extract_scalar_reward, split_index
 logger = logging.getLogger('hyperopt_AutoML')
 
 
+def _constant_range(spec):
+    return (
+        spec[NodeType.TYPE] in ('uniform', 'quniform', 'loguniform', 'qloguniform')
+        and spec[NodeType.VALUE][0] == spec[NodeType.VALUE][1]
+    )
+
+
 def json2space(in_x, name=NodeType.ROOT):
     """
     Change json to search space in hyperopt.
@@ -38,6 +45,8 @@ def json2space(in_x, name=NodeType.ROOT):
             _value = json2space(in_x[NodeType.VALUE], name=name)
             if _type == 'choice':
                 out_y = hp.hp.choice(name, _value)
+            elif _constant_range(in_x):
+                out_y = hp.hp.choice(name, [_value[0]])
             elif _type == 'randint':
                 out_y = hp.hp.randint(name, _value[1] - _value[0])
             else:
@@ -79,6 +88,8 @@ def json2parameter(in_x, parameter, name=NodeType.ROOT):
                                    parameter,
                                    name=name + '[%d]' % _index)
                 }
+            elif _constant_range(in_x):
+                out_y = in_x[NodeType.VALUE][0]
             else:
                 if _type in ['quniform', 'qloguniform']:
                     out_y = np.clip(parameter[name], in_x[NodeType.VALUE][0], in_x[NodeType.VALUE][1])
@@ -108,6 +119,10 @@ def json2vals(in_x, vals, out_y, name=NodeType.ROOT):
         if NodeType.TYPE in in_x.keys():
             _type = in_x[NodeType.TYPE]
             name = name + '-' + _type
+
+            if _constant_range(in_x):
+                out_y[name] = 0
+                return
 
             try:
                 out_y[name] = vals[NodeType.INDEX]
@@ -346,7 +361,12 @@ class HyperoptTuner(Tuner):
         for key in domain.params:
             if key in [NodeType.VALUE, NodeType.INDEX]:
                 continue
-            if key not in vals or vals[key] is None or vals[key] == []:
+            value = vals.get(key)
+            is_empty = (
+                isinstance(value, (list, tuple)) and len(value) == 0
+                or isinstance(value, np.ndarray) and value.size == 0
+            )
+            if value is None or is_empty:
                 idxs[key] = vals[key] = []
             else:
                 idxs[key] = [new_id]

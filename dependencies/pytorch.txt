@@ -1,0 +1,7 @@
+# Current stable framework versions used by the compatibility workflow.
+# For CUDA builds, install these versions using the index from pytorch.org first.
+torch == 2.14.0
+torchvision == 0.29.0
+pytorch-lightning == 2.6.6
+torchmetrics >= 1.0, < 2
+tensorboard >= 2.13

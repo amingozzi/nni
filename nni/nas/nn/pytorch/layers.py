@@ -10,6 +10,7 @@
 
 import hashlib
 import os
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -50,8 +51,10 @@ def generate_stub_file() -> str:
         # not an nn.Module
         'Parameter',
         'ParameterList',
+        'Buffer',
         'UninitializedBuffer',
         'UninitializedParameter',
+        'LinearCrossEntropyOptions',
 
         # arguments are special
         'Module',
@@ -112,26 +115,36 @@ def write_cache(code: str) -> bool:
     if os.access(nn_cache_file_path.as_posix(), os.W_OK) or (
         not nn_cache_file_path.exists() and os.access(nn_cache_file_path.parent.as_posix(), os.W_OK)
     ):
-        with nn_cache_file_path.open('w') as fp:
-            fp.write(code)
-        return True
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', dir=nn_cache_file_path.parent,
+                prefix='_layers_', suffix='.tmp', delete=False
+            ) as fp:
+                temporary_path = Path(fp.name)
+                fp.write(code)
+            temporary_path.replace(nn_cache_file_path)
+            return True
+        except OSError as exc:
+            warnings.warn(f'Failed to update {nn_cache_file_path}: {exc}', RuntimeWarning)
+            return False
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
     else:
         # no permission
         return False
 
 
-code = generate_stub_file()
-
-if not validate_cache():
-    if not write_cache(code):
-        warnings.warn(f'Cannot write to {nn_cache_file_path}. Will try to execute the generated code on-the-fly.')
-
-try:
-    # Layers can be either empty or successfully written.
+if validate_cache():
     from ._layers import *  # pylint: disable=import-error, wildcard-import, unused-wildcard-import
-except ModuleNotFoundError:
-    # Backup plan when the file is not writable.
-    exec(code, globals())
+else:
+    code = generate_stub_file()
+    if write_cache(code):
+        from ._layers import *  # pylint: disable=import-error, wildcard-import, unused-wildcard-import
+    else:
+        warnings.warn(f'Cannot write to {nn_cache_file_path}. Will execute the generated code on-the-fly.')
+        exec(code, globals())
 
 
 def mutable_global_names():

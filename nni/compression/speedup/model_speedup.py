@@ -17,6 +17,7 @@ from torch.fx.node import Node, Target
 from torch.fx.passes.shape_prop import ShapeProp
 
 from nni.common.concrete_trace_utils import concrete_trace
+from nni.common.torch_utils import _temporary_eval_mode
 from nni.compression.utils import set_nested_attr
 from nni.compression.speedup.replacement import replace_module
 
@@ -128,12 +129,13 @@ class ModelSpeedup(torch.fx.Interpreter):
         else:
             self.graph_module = concrete_trace(model, self.dummy_input)
 
-        ShapeProp(self.graph_module).propagate(*self.dummy_input)   # attach shape to graph_module
+        with _temporary_eval_mode(self.graph_module), torch.no_grad():
+            ShapeProp(self.graph_module).propagate(*self.dummy_input)
 
         super().__init__(self.graph_module, garbage_collect_values)
 
         if isinstance(masks_or_file, (str, Path)) and Path(masks_or_file).exists():
-            self.masks = torch.load(masks_or_file, map_location)
+            self.masks = torch.load(masks_or_file, map_location, weights_only=True)
         elif isinstance(masks_or_file, dict):
             self.masks = masks_or_file
         else:
@@ -414,34 +416,26 @@ class ModelSpeedup(torch.fx.Interpreter):
                         self.node_infos[node_kw[key]].output_masks *= mask.detach().clone()
 
     def speedup_model(self) -> torch.nn.Module:
-        try:
-            ori_state_dict_file = tempfile.NamedTemporaryFile(delete=False)
-            torch.save(self.graph_module.state_dict(), ori_state_dict_file)
-            ori_state_dict_file.close()
+        with tempfile.TemporaryFile() as state_file:
+            torch.save(self.graph_module.state_dict(), state_file)
+            with _temporary_eval_mode(self.graph_module):
+                try:
+                    self.logger.info("Start to speedup the model...")
 
-            self.logger.info("Start to speedup the model...")
-            training = self.graph_module.training
-            self.graph_module.train(False)
-
-            # TODO: suppose to fix the conflict after the sparsity propagation, which is more elegent
-            self.logger.info('Resolve the mask conflict before mask propagate...')
-            # fix_mask_conflict(self.masks, self.graph_module, self.dummy_input)
-            self.fix_mask_conflict()
-            self.logger.info('Infer module masks...')
-            self.initialize_propagate(self.dummy_input)
-            self.propagate_originally()
-            self.initialize_update_sparsity()
-            self.update_direct_sparsity()
-            self.update_indirect_sparsity()
-            self.logger.info('Resolve the mask conflict after mask propagate...')
-            # fix_mask_conflict(self.masks, self.graph_module, self.dummy_input)
-            self.fix_mask_conflict()
-
-            self.graph_module.load_state_dict(torch.load(ori_state_dict_file.name))
-            self.graph_module.train(training)
-        finally:
-            import os
-            os.unlink(ori_state_dict_file.name)
+                    # TODO: suppose to fix the conflict after the sparsity propagation, which is more elegent
+                    self.logger.info('Resolve the mask conflict before mask propagate...')
+                    self.fix_mask_conflict()
+                    self.logger.info('Infer module masks...')
+                    self.initialize_propagate(self.dummy_input)
+                    self.propagate_originally()
+                    self.initialize_update_sparsity()
+                    self.update_direct_sparsity()
+                    self.update_indirect_sparsity()
+                    self.logger.info('Resolve the mask conflict after mask propagate...')
+                    self.fix_mask_conflict()
+                finally:
+                    state_file.seek(0)
+                    self.graph_module.load_state_dict(torch.load(state_file, weights_only=False))
 
         self.replace_compressed_modules()
         self.logger.info("Speedup done.")

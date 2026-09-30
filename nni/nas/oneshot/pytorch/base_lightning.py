@@ -355,28 +355,12 @@ class BaseOneShotLightningModule(LightningModule):
         current_idx = batch_idx if interval == 'step' else self.trainer.current_epoch
         current_idx += 1  # account for both batch and epoch starts from 0
 
-        try:
-            # lightning >= 1.6
-            for config in self.trainer.lr_scheduler_configs:
-                if hasattr(config, 'opt_idx'):
-                    # lightning < 2.0
-                    scheduler, opt_idx = config.scheduler, config.opt_idx  # type: ignore
-                else:
-                    scheduler, opt_idx = config.scheduler, None
-                if config.reduce_on_plateau:
-                    warnings.warn('Reduce-lr-on-plateau is not supported in NAS. It will be ignored.', UserWarning)
-                if config.interval == interval and current_idx % config.frequency == 0:
-                    if opt_idx is not None:
-                        self.training_module.lr_scheduler_step(cast(Any, scheduler), cast(int, opt_idx), None)  # type: ignore
-                    else:
-                        self.training_module.lr_scheduler_step(cast(Any, scheduler), None)
-        except AttributeError:
-            # lightning < 1.6
-            for lr_scheduler in self.trainer.lr_schedulers:  # type: ignore
-                if lr_scheduler['reduce_on_plateau']:
-                    warnings.warn('Reduce-lr-on-plateau is not supported in NAS. It will be ignored.', UserWarning)
-                if lr_scheduler['interval'] == interval and current_idx % lr_scheduler['frequency']:
-                    lr_scheduler['scheduler'].step()
+        for config in self.trainer.lr_scheduler_configs:
+            if config.reduce_on_plateau:
+                warnings.warn('Reduce-lr-on-plateau is not supported in NAS. It will be ignored.', UserWarning)
+                continue
+            if config.interval == interval and current_idx % config.frequency == 0:
+                self.training_module.lr_scheduler_step(config.scheduler, None)
 
     def architecture_optimizers(self) -> list[LightningOptimizer] | LightningOptimizer | None:
         """

@@ -1,7 +1,7 @@
 Build from Source
 =================
 
-This article describes how to build and install NNI from `source code <https://github.com/microsoft/nni>`__.
+This article describes how to build and install this fork from `source code <https://github.com/amingozzi/nni>`__.
 
 Preparation
 -----------
@@ -10,14 +10,14 @@ Fetch source code from GitHub:
 
 .. code-block:: bash
 
-    git clone https://github.com/microsoft/nni.git
+    git clone https://github.com/amingozzi/nni.git
     cd nni
 
 Upgrade to latest toolchain:
 
 .. code-block:: text
 
-    pip install --upgrade setuptools pip wheel
+    python -m pip install -r dependencies/setup.txt
 
 .. note::
 
@@ -34,9 +34,29 @@ If you want to build NNI for your own use, we recommend using `development mode`
 
 .. code-block:: text
 
-    python setup.py develop
+    python setup.py build_ts
+    python -m pip install -e ".[nas]"
 
-This will install NNI as symlink, and the version number will be ``999.dev0``.
+This builds the manager and Web UI, then installs the Python package in editable mode.
+The version number will be ``999.dev0``. Both npm builds and the bundled production
+dependencies use their lockfiles.
+
+If Node.js and npm are already installed, ``GLOBAL_TOOLCHAIN=1`` uses that toolchain
+instead of downloading the bundled runtime. Node.js 24 is exercised by the manager workflow.
+For PowerShell:
+
+.. code-block:: powershell
+
+    $env:GLOBAL_TOOLCHAIN = '1'
+    python setup.py build_ts
+    python -m pip install -e ".[nas]"
+
+For Python-only SDK, NAS, or compression work, skip ``build_ts`` and run the editable install
+directly. Starting an experiment manager or using the Web UI still requires the TypeScript build.
+
+The modern build backend is declared in ``pyproject.toml`` and supports pip build isolation.
+See `Setuptools editable installs
+<https://setuptools.pypa.io/en/latest/userguide/development_mode.html>`__.
 
 .. _development mode: https://setuptools.pypa.io/en/latest/userguide/development_mode.html
 
@@ -48,11 +68,8 @@ Release Build
 To install in release mode, you must first build a wheel.
 NNI does not support setuptools' "install" command.
 
-A release package requires jupyterlab to build the extension:
-
-.. code-block:: text
-
-    pip install jupyterlab==3.0.9
+The current build includes the manager and Web UI. The legacy JupyterLab extension
+is not built, so JupyterLab is not required to create a wheel.
 
 You need to set ``NNI_RELEASE`` environment variable to the version number,
 and compile TypeScript modules before "bdist_wheel".
@@ -116,8 +133,9 @@ Skip compiling TypeScript modules
 
 This is useful when you have uninstalled NNI from development mode and want to install again.
 
-It will not work if you have never built TypeScript modules before.
+Without a previous TypeScript build, only the Python SDK, NAS, and compression APIs
+will be available; the experiment manager and Web UI will not be installed.
 
 .. code:: text
 
-    python setup.py develop --skip-ts
+    python -m pip install -e .

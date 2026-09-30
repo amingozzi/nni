@@ -38,7 +38,7 @@ def to_onnx(model: nn.Module, example_inputs: Any) -> Any:
         raise
 
     with tempfile.TemporaryFile() as fp:
-        torch.onnx.export(model, example_inputs, fp, export_params=False)  # type: ignore
+        torch.onnx.export(model, example_inputs, fp, export_params=False, dynamo=False)  # type: ignore
         fp.seek(0)
         model = onnx.load(fp, load_external_data=False)  # type: ignore
 
