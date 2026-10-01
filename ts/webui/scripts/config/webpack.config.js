@@ -118,6 +118,7 @@ module.exports = function(webpackEnv) {
       loaders.push({
         loader: require.resolve(preProcessor),
         options: {
+          api: 'modern',
           sourceMap: isEnvProduction && shouldUseSourceMap,
         },
       });

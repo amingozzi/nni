@@ -66,7 +66,10 @@ const config = {
                         use: [
                             require.resolve('style-loader'),
                             require.resolve('css-loader'),
-                            require.resolve('sass-loader'),
+                            {
+                                loader: require.resolve('sass-loader'),
+                                options: { api: 'modern' },
+                            },
                         ],
                         sideEffects: true,
                     },
