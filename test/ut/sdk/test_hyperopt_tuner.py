@@ -8,6 +8,7 @@ test_hyperopt_tuner.py
 from unittest import TestCase, main
 
 import hyperopt as hp
+import pytest
 
 from nni.algorithms.hpo.hyperopt_tuner import json2space, json2parameter, json2vals, HyperoptTuner
 
@@ -105,6 +106,35 @@ class HyperoptTunerTestCase(TestCase):
                 self.assertGreaterEqual(param["a"], 1)
                 self.assertLessEqual(param["a"], 2)
                 self.assertIn(param["b"], choice_list)
+
+
+@pytest.mark.parametrize('algorithm', ['tpe', 'random_search', 'anneal'])
+@pytest.mark.parametrize('distribution, value, quantum', [
+    ('uniform', 99.9, None),
+    ('quniform', 2.0, 0.5),
+    ('loguniform', 0.1, None),
+    ('qloguniform', 2.0, 1.0),
+])
+def test_constant_ranges(algorithm, distribution, value, quantum):
+    values = [value, value] if quantum is None else [value, value, quantum]
+    space = {'constant': {'_type': distribution, '_value': values}}
+    tuner = HyperoptTuner(algorithm)
+    tuner.update_search_space(space)
+    for trial_id in range(3):
+        parameters = tuner.generate_parameters(trial_id)
+        assert parameters == {'constant': value}
+        tuner.receive_trial_result(trial_id, parameters, 1.0)
+    restored_values = {}
+    json2vals(space, {'constant': value}, restored_values)
+    assert restored_values == {f'root[constant]-{distribution}': 0}
+
+
+def test_quantized_numpy_scalar_result():
+    tuner = HyperoptTuner('anneal')
+    tuner.update_search_space({'value': {'_type': 'quniform', '_value': [0.0, 10.0, 0.5]}})
+    parameters = tuner.generate_parameters(0)
+    tuner.receive_trial_result(0, parameters, 1.0)
+    assert len(tuner.rval.trials) == 1
 
 
 if __name__ == '__main__':

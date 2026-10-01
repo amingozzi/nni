@@ -48,6 +48,8 @@ class OptimizerConstructHelper(ConstructHelper):
         if not isinstance(param_groups[0], dict):
             param_groups = [{'params': param_groups}]
 
+        names_by_id = {id(param): name for name, param in model.named_parameters()}
+        converted_groups = []
         for param_group in param_groups:
             params = param_group['params']
             if isinstance(params, Tensor):
@@ -57,17 +59,25 @@ class OptimizerConstructHelper(ConstructHelper):
                                 'the ordering of tensors in sets will change between runs. Please use a list instead.')
             else:
                 params = list(params)
-            param_ids = [id(p) for p in params]
-            param_group['params'] = [name for name, p in model.named_parameters() if id(p) in param_ids]
+            converted_group = dict(param_group)
+            try:
+                converted_group['params'] = [names_by_id[id(param)] for param in params]
+            except KeyError as exc:
+                raise ValueError('Optimizer contains a parameter that is not part of the model.') from exc
+            converted_groups.append(converted_group)
 
-        return param_groups
+        return converted_groups
 
     def names2params(self, wrapped_model: Module, origin2wrapped_name_map: Dict | None, params: List[Dict]) -> List[Dict]:
         param_groups = deepcopy(params)
         origin2wrapped_name_map = origin2wrapped_name_map if origin2wrapped_name_map else {}
+        params_by_name = dict(wrapped_model.named_parameters())
         for param_group in param_groups:
             wrapped_names = [origin2wrapped_name_map.get(name, name) for name in param_group['params']]
-            param_group['params'] = [p for name, p in wrapped_model.named_parameters() if name in wrapped_names]
+            try:
+                param_group['params'] = [params_by_name[name] for name in wrapped_names]
+            except KeyError as exc:
+                raise ValueError(f'Optimizer parameter {exc.args[0]!r} is not part of the bound model.') from exc
         return param_groups
 
     def call(self, wrapped_model: Module, origin2wrapped_name_map: Dict | None) -> Optimizer:

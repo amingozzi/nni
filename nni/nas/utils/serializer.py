@@ -90,12 +90,11 @@ def _find_path_with_prefix(path: Path, expected_suffix: str) -> Path:
     if path.exists():
         return path
 
-    for p in path.parent.iterdir():
-        if p.name.startswith(path.name) and p.name == path.name + expected_suffix:
-            return p
+    suffixed_path = path.with_name(path.name + expected_suffix)
+    if suffixed_path.exists():
+        return suffixed_path
 
-    # Iter again to give a warning.
-    for p in path.parent.iterdir():
+    for p in path.parent.iterdir() if path.parent.is_dir() else ():
         if p.name.startswith(path.name):
             # Try to find the serializer type that can load this file.
             guessed_serializer_type: Type[Serializer] | None = None
@@ -122,11 +121,20 @@ class TorchSerializer(Serializer):
     ----------
     map_location
         The ``map_location`` argument to be passed to :func:`torch.load`.
+    weights_only
+        The ``weights_only`` argument to be passed to :func:`torch.load`.
+        Defaults to ``False`` to preserve support for strategy state containing
+        arbitrary Python objects, including NumPy random states.
+
+    .. warning::
+
+        With ``weights_only=False``, only load checkpoints from trusted sources.
+        Use ``weights_only=True`` when loading only tensors and supported primitive types.
     """
 
     suffix: ClassVar[str] = '.torch'
 
-    def __init__(self, map_location: Any = None):
+    def __init__(self, map_location: Any = None, *, weights_only: bool = False):
         try:
             import torch  # pylint: disable=unused-import
         except ImportError:
@@ -137,6 +145,7 @@ class TorchSerializer(Serializer):
             )
 
         self._map_location = map_location
+        self._weights_only = weights_only
 
     def save(self, checkpoint: Any, path: Path):
         import torch
@@ -145,7 +154,7 @@ class TorchSerializer(Serializer):
     def load(self, path: Path):
         path = _find_path_with_prefix(path, self.suffix)
         import torch
-        return torch.load(str(path), map_location=self._map_location)
+        return torch.load(str(path), map_location=self._map_location, weights_only=self._weights_only)
 
 
 class JsonSerializer(Serializer):

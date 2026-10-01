@@ -50,11 +50,6 @@ steps:
   condition: and(succeeded(), contains('${{ parameters.platform }}', 'windows'))
   continueOnError: true
 
-- script: |
-    mv dependencies/recommended_legacy.txt dependencies/recommended.txt
-  displayName: (legacy) Activate legacy dependencies
-  condition: and(succeeded(), contains('${{ parameters.platform }}', 'legacy'))
-
 - ${{ if contains(parameters.platform, 'windows') }}:
     powershell:
       Move-Item -Force -Path dependencies/recommended_gpu.txt -Destination dependencies/recommended.txt
@@ -63,11 +58,6 @@ steps:
       mv dependencies/recommended_gpu.txt dependencies/recommended.txt
   displayName: (GPU) Activate CUDA dependencies
   condition: and(succeeded(), contains('${{ parameters.platform }}', 'gpu'))
-
-- script: |
-    mv dependencies/recommended_gpu_legacy.txt dependencies/recommended.txt
-  displayName: (GPU) Activate CUDA legacy dependencies
-  condition: and(succeeded(), contains('${{ parameters.platform }}', 'gpu-torch1.x'))
 
 - script: |
     echo '===== develop ====='

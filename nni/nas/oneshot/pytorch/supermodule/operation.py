@@ -588,7 +588,7 @@ class MixedLayerNorm(MixedOperation, nn.LayerNorm):
             normalized_shape = (self.normalized_shape, )
 
         # slice all the normalized shape
-        indices = [slice(0, min(i, j)) for i, j in zip(normalized_shape, self.normalized_shape)]
+        indices = tuple(slice(0, min(i, j)) for i, j in zip(normalized_shape, self.normalized_shape))
 
         # remove _S(*)
         weight = self.weight[indices] if self.weight is not None else None

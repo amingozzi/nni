@@ -218,36 +218,27 @@ def inject_trace_info(obj: Any, symbol: T, args: List[Any], kwargs: Dict[str, An
     return obj
 
 
+def _traceable_get(self):
+    return self
+
+
 def _make_class_traceable(cls: T, create_wrapper: bool = False) -> T:
     # Make an already exist class traceable, without creating a new class.
     # Should be used together with `inject_trace_info`.
 
-    def getter_factory(x):
-        return lambda self: self.__dict__['_nni_' + x]
-
-    def setter_factory(x):
-        def setter(self, val):
-            self.__dict__['_nni_' + x] = val
-
-        return setter
-
-    def trace_copy(self):
-        return SerializableObject(
-            self.trace_symbol,
-            list(self.trace_args),
-            dict(self.trace_kwargs),
-        )
-
-    def get(self):
-        return self
-
     attributes = {
-        'trace_symbol': property(getter_factory('symbol'), setter_factory('symbol')),
-        'trace_args': property(getter_factory('args'), setter_factory('args')),
-        'trace_kwargs': property(getter_factory('kwargs'), setter_factory('kwargs')),
-        'trace_copy': trace_copy,
-        'get': get,
+        'trace_symbol': SerializableObject.trace_symbol,
+        'trace_args': SerializableObject.trace_args,
+        'trace_kwargs': SerializableObject.trace_kwargs,
+        '_get_nni_attr': SerializableObject._get_nni_attr,
+        'trace_copy': SerializableObject.trace_copy,
+        'get': _traceable_get,
     }
+
+    torch = sys.modules.get('torch')
+    if torch is not None and issubclass(cast(Type, cls), torch.nn.Module):
+        for name in ('trace_symbol', 'trace_args', 'trace_kwargs'):
+            attributes[name] = torch.jit.unused(attributes[name])
 
     if not create_wrapper:
         for name, method in attributes.items():
@@ -478,6 +469,19 @@ def load(string: Optional[str] = None, *, fp: Optional[Any] = None,
         return json_tricks.load(fp, obj_pairs_hooks=hooks, **json_tricks_kwargs)
 
 
+def _trace_class_init(self, base, original_init, kw_only, args, kwargs):
+    # A parametrized module may have already recorded its unfrozen arguments.
+    preserve_trace = is_traceable(self) and self.trace_symbol is not base
+    args, kwargs = _formulate_arguments(original_init, args, kwargs, kw_only, is_class_init=True)
+    original_init(
+        self,
+        *[_argument_processor(arg) for arg in args],
+        **{kw: _argument_processor(arg) for kw, arg in kwargs.items()}
+    )
+    if not preserve_trace:
+        inject_trace_info(self, base, args, kwargs)
+
+
 def _trace_cls(base, kw_only, call_super=True, inheritable=False):
     # the implementation to trace a class is to store a copy of init arguments
     # this won't support class that defines a customized new but should work for most cases
@@ -499,13 +503,7 @@ def _trace_cls(base, kw_only, call_super=True, inheritable=False):
             # https://github.com/PyTorchLightning/pytorch-lightning/blob/4cc05b2cf98e49168a5f5dc265647d75d1d3aae9/pytorch_lightning/utilities/parsing.py#L143
             @functools.wraps(original_init)
             def new_init(self, *args, **kwargs):
-                args, kwargs = _formulate_arguments(original_init, args, kwargs, kw_only, is_class_init=True)
-                original_init(
-                    self,
-                    *[_argument_processor(arg) for arg in args],
-                    **{kw: _argument_processor(arg) for kw, arg in kwargs.items()}
-                )
-                inject_trace_info(self, base, args, kwargs)
+                _trace_class_init(self, base, original_init, kw_only, args, kwargs)
 
             base.__init__ = new_init
 

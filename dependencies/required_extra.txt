@@ -2,7 +2,7 @@
 # please follow the logic in setup.py.
 
 # Anneal
-hyperopt == 0.1.2
+hyperopt >= 0.2.7, < 1
 
 # SMAC
 ConfigSpaceNNI>=0.4.7.3

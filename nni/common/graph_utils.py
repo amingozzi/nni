@@ -9,6 +9,8 @@ from collections import defaultdict
 from typing import List, Dict
 import torch
 from torch.utils.tensorboard._pytorch_graph import NodePy, NodePyIO, NodePyOP, GraphPy
+
+from .torch_utils import _temporary_eval_mode
 CLASSTYPE_KIND = 'ClassType'
 GETATTR_KIND = 'prim::GetAttr'
 CAT_KIND = 'aten::cat'
@@ -70,27 +72,18 @@ class TorchGraph:
                 'Please provide model & dummy_input or the traced_model as inputs')
 
     def _trace(self, model, dummy_input):
-        training = model.training
-        model.eval()
-        kw_args = {}
-        if torch.__version__ >= '1.6.0':
-            # only pytorch with version greater than 1.6.0 has the strict option
-            kw_args['strict'] = False
-        try:
-            import pytorch_lightning as pl
-        except ImportError:
-            is_lightning_module = False
-        else:
-            if isinstance(model, pl.LightningModule):
-                is_lightning_module = True
-            else:
+        with _temporary_eval_mode(model):
+            try:
+                import pytorch_lightning as pl
+            except ImportError:
                 is_lightning_module = False
-        if is_lightning_module:
-            self.trace = model.to_torchscript(method="trace", example_inputs=dummy_input, **kw_args)
-        else:
-            self.trace = torch.jit.trace(model, dummy_input, **kw_args)
-        torch._C._jit_pass_inline(self.trace.graph)
-        model.train(training)
+            else:
+                is_lightning_module = isinstance(model, pl.LightningModule)
+            if is_lightning_module:
+                self.trace = model.to_torchscript(method="trace", example_inputs=dummy_input, strict=False)
+            else:
+                self.trace = torch.jit.trace(model, dummy_input, strict=False)
+            torch._C._jit_pass_inline(self.trace.graph)
 
 
 class TorchProtoGraph(TorchGraph):

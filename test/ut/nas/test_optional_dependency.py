@@ -1,12 +1,31 @@
 """To test the cases of importing NAS without certain DL libraries installed."""
 
 import argparse
+import importlib.abc
+import importlib.machinery
 import subprocess
 import sys
 
 import pytest
 
 masked_packages = ['torch', 'torch_none', 'tensorflow', 'tianshou']
+
+
+class MissingDependency(importlib.abc.MetaPathFinder):
+    def __init__(self, package):
+        self.package = package
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == self.package or fullname.startswith(self.package + '.'):
+            return None
+        return importlib.machinery.PathFinder.find_spec(fullname, path, target)
+
+
+def mask_dependency(package):
+    sys.meta_path = [
+        MissingDependency(package) if finder is importlib.machinery.PathFinder else finder
+        for finder in sys.meta_path
+    ]
 
 
 def import_related(mask_out):
@@ -30,17 +49,16 @@ def main():
     parser.add_argument('masked', choices=masked_packages)
     args = parser.parse_args()
     if args.masked == 'torch':
-        # https://stackoverflow.com/questions/1350466/preventing-python-code-from-importing-certain-modules
-        sys.modules['torch'] = None
+        mask_dependency('torch')
         import_related('tensorflow')
     elif args.masked == 'torch_none':
-        sys.modules['torch'] = None
+        mask_dependency('torch')
         import_related('none')
     elif args.masked == 'tensorflow':
-        sys.modules['tensorflow'] = None
+        mask_dependency('tensorflow')
         import_related('pytorch')
     elif args.masked == 'tianshou':
-        sys.modules['tianshou'] = None
+        mask_dependency('tianshou')
         import_rl_strategy_without_tianshou()
     else:
         raise ValueError(f'Unknown masked package: {args.masked}')

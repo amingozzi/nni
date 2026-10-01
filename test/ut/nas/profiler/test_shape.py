@@ -19,6 +19,22 @@ def randn_tensor(*shape):
     return tensor
 
 
+@pytest.mark.parametrize('inference', [shape_inference, submodule_input_output_shapes])
+def test_shape_inference_removes_hooks_on_failure(inference):
+    class BrokenModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layer = nn.Linear(4, 2)
+
+        def forward(self, inputs):
+            raise RuntimeError('Expected shape inference failure')
+
+    model = BrokenModel()
+    with pytest.raises(RuntimeError, match='Expected shape inference failure'):
+        inference(model, ShapeTensor(torch.randn(2, 4), True))
+    assert all(not module._forward_hooks for module in model.modules())
+
+
 def test_assign_shape_info():
     from torch.utils._pytree import tree_map
     cases = [

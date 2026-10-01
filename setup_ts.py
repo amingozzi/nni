@@ -191,12 +191,19 @@ def prepare_nni_node():
     """
     Create clean nni_node diretory, then copy node runtime to it.
     """
+    if os.environ.get('GLOBAL_TOOLCHAIN'):
+        global_node = shutil.which('node')
+        if global_node is None:
+            raise RuntimeError('GLOBAL_TOOLCHAIN requires node to be available on PATH.')
+        node_src = Path(global_node)
+    else:
+        node_src = Path('toolchain/node', node_executable_in_tarball)
+
     shutil.rmtree('nni_node', ignore_errors=True)
     Path('nni_node').mkdir()
 
     Path('nni_node/__init__.py').write_text('"""NNI node.js modules."""\n')
 
-    node_src = Path('toolchain/node', node_executable_in_tarball)
     node_dst = Path('nni_node', node_executable)
     shutil.copy(node_src, node_dst)
 
@@ -206,14 +213,14 @@ def compile_ts(release):
     Use npm to download dependencies and compile TypeScript code.
     """
     _print('Building NNI manager')
-    _npm('ts/nni_manager', 'install')
+    _npm('ts/nni_manager', 'ci')
     _npm('ts/nni_manager', 'run', 'build')
     # todo: I don't think these should be here
     shutil.rmtree('ts/nni_manager/dist/config', ignore_errors=True)
     shutil.copytree('ts/nni_manager/config', 'ts/nni_manager/dist/config')
 
     _print('Building web UI')
-    _npm('ts/webui', 'install')
+    _npm('ts/webui', 'ci')
     if release:
         _npm('ts/webui', 'run', 'release')
     else:
@@ -270,7 +277,7 @@ def copy_nni_node(version):
                 shutil.copytree(subsrc, subdst)
             else:
                 shutil.copy2(subsrc, subdst)
-    shutil.copyfile('ts/nni_manager/package-lock.json', 'nni_node/package-lock.lock')
+    shutil.copyfile('ts/nni_manager/package-lock.json', 'nni_node/package-lock.json')
     Path('nni_node/nni_manager.tsbuildinfo').unlink()
 
     package_json = json.load(open('ts/nni_manager/package.json'))
@@ -280,13 +287,9 @@ def copy_nni_node(version):
         package_json['version'] = version
     json.dump(package_json, open('nni_node/package.json', 'w'), indent=2)
 
-    if sys.platform == 'win32':
-        # On Windows, manually install node-gyp for sqlite3.
-        _npm('ts/nni_manager', 'install', '--global', 'node-gyp')
-
     # reinstall without development dependencies
     prod_path = Path('nni_node').resolve()
-    _npm(str(prod_path), 'install', '--omit', 'dev')
+    _npm(str(prod_path), 'ci', '--omit', 'dev')
 
     shutil.copytree('ts/webui/build', 'nni_node/static')
 
@@ -305,7 +308,10 @@ _npm_path = Path().resolve() / 'toolchain/node' / npm_executable
 def _npm(path, *args):
     _print('npm ' + ' '.join(args) + f' (path: {path})')
     if os.environ.get('GLOBAL_TOOLCHAIN'):
-        subprocess.run(['npm', *args], cwd=path, check=True)
+        npm_path = shutil.which('npm')
+        if npm_path is None:
+            raise RuntimeError('GLOBAL_TOOLCHAIN requires npm to be available on PATH.')
+        subprocess.run([npm_path, *args], cwd=path, check=True)
     else:
         subprocess.run([str(_npm_path), *args], cwd=path, check=True, env=_npm_env)
 

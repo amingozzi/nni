@@ -417,6 +417,19 @@ def test_get():
     assert obj2.get().bar() == 0
 
 
+def test_uninitialized_trace_metadata():
+    @nni.trace
+    class Uninitialized:
+        pass
+
+    obj = Uninitialized.__new__(Uninitialized)
+    assert not is_traceable(obj)
+    for name in ('trace_symbol', 'trace_args', 'trace_kwargs'):
+        assert not hasattr(obj, name)
+        with pytest.raises(AttributeError):
+            getattr(obj, name)
+
+
 class CustomParameter:
     def __init__(self, x):
         self._wrapped = x

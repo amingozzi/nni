@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence, MutableMapping
 from copy import deepcopy
+import functools
 import logging
 import types
 from typing import Dict, List, Tuple, Union, Any, Callable, Optional
@@ -400,6 +401,8 @@ class LightningEvaluator(Evaluator):
         self.model: pl.LightningModule | None = None
         self._ori_model_attr = {}
         self._param_names_map: Dict[str, str] | None = None
+        self._before_step_tasks: List[Callable] = []
+        self._after_step_tasks: List[Callable] = []
 
         self._initialization_complete = False
 
@@ -408,6 +411,7 @@ class LightningEvaluator(Evaluator):
 
         self._optimizer_helpers = []
         self._lr_scheduler_helpers = []
+        self._lr_scheduler_configs = []
         # record i-th lr_scheduler scheduling j-th optimizer lr
         self._lrs_opt_map = {}
         # record `LightningModule.configure_optimizers` 6-th option returned dict information
@@ -428,15 +432,24 @@ class LightningEvaluator(Evaluator):
 
         err_msg = f'Got an wrong returned value type of `LightningModule.configure_optimizers`: {type(optimizers_lr_schedulers).__name__}'
         assert isinstance(optimizers_lr_schedulers, (list, tuple)), err_msg
+        if not optimizers_lr_schedulers:
+            raise ValueError('LightningModule.configure_optimizers returned an empty optimizer configuration.')
 
         # 4. Two lists - the first list has multiple optimizers,
         # and the second has multiple LR schedulers (or multiple lr_scheduler_config).
         if isinstance(optimizers_lr_schedulers[0], (list, tuple)):
             optimizers, lr_schedulers = optimizers_lr_schedulers
             self._optimizer_helpers = [OptimizerConstructHelper.from_trace(pure_model, optimizer) for optimizer in optimizers]
-            self._lr_scheduler_helpers = [LRSchedulerConstructHelper.from_trace(lr_scheduler) for lr_scheduler in lr_schedulers]
             optimizer_ids_map = {id(optimizer): i for i, optimizer in enumerate(optimizers)}
-            self._lrs_opt_map = {i: optimizer_ids_map[id(lr_scheduler.optimizer)] for i, lr_scheduler in enumerate(lr_schedulers)}
+            for index, lr_scheduler_config in enumerate(lr_schedulers):
+                lr_scheduler = (
+                    lr_scheduler_config['scheduler'] if isinstance(lr_scheduler_config, dict) else lr_scheduler_config
+                )
+                self._lr_scheduler_helpers.append(LRSchedulerConstructHelper.from_trace(lr_scheduler))
+                self._lrs_opt_map[index] = optimizer_ids_map[id(lr_scheduler.optimizer)]
+                self._lr_scheduler_configs.append(
+                    dict(lr_scheduler_config, scheduler=index) if isinstance(lr_scheduler_config, dict) else None
+                )
         # 5. List or Tuple of optimizers.
         elif isinstance(optimizers_lr_schedulers[0], Optimizer):
             self._optimizer_helpers = [OptimizerConstructHelper.from_trace(pure_model, optimizer) for optimizer in optimizers_lr_schedulers]
@@ -447,17 +460,23 @@ class LightningEvaluator(Evaluator):
             optimizer_count = 0
             scheduler_count = 0
             for opt_dict in optimizers_lr_schedulers:
-                opt_dict: Dict
+                opt_dict = dict(opt_dict)
                 self._optimizer_helpers.append(OptimizerConstructHelper.from_trace(pure_model, opt_dict['optimizer']))
                 optimizer_ids_map[id(opt_dict['optimizer'])] = optimizer_count
                 opt_dict['optimizer'] = optimizer_count
                 optimizer_count += 1
 
-                lr_scheduler = opt_dict.get('lr_scheduler', {}).get('scheduler', None)
-                if lr_scheduler is not None:
+                if 'lr_scheduler' in opt_dict:
+                    lr_scheduler_config = opt_dict['lr_scheduler']
+                    if not isinstance(lr_scheduler_config, dict):
+                        lr_scheduler_config = {'scheduler': lr_scheduler_config}
+                    else:
+                        lr_scheduler_config = dict(lr_scheduler_config)
+                    lr_scheduler = lr_scheduler_config['scheduler']
                     self._lr_scheduler_helpers.append(LRSchedulerConstructHelper.from_trace(lr_scheduler))
                     lr_scheduler_opt_ids_map[scheduler_count] = id(lr_scheduler.optimizer)
-                    opt_dict['lr_scheduler']['scheduler'] = scheduler_count
+                    lr_scheduler_config['scheduler'] = scheduler_count
+                    opt_dict['lr_scheduler'] = lr_scheduler_config
                     scheduler_count += 1
                 self._opt_returned_dicts.append(opt_dict)
             self._lrs_opt_map = {scheduler_count: optimizer_ids_map[opt_id] for scheduler_count, opt_id in lr_scheduler_opt_ids_map.items()}
@@ -531,11 +550,30 @@ class LightningEvaluator(Evaluator):
 
         self.model.configure_optimizers = types.MethodType(new_configure_optimizers, self.model)
 
+    def _construct_optimizers(self) -> List[Optimizer]:
+        assert isinstance(self.model, pl.LightningModule)
+        optimizers = [helper.call(self.model, self._param_names_map) for helper in self._optimizer_helpers]
+        if self._before_step_tasks or self._after_step_tasks:
+            optimizer = optimizers[0]
+            original_step = optimizer.step
+
+            @functools.wraps(original_step)
+            def patched_step(_, *args, **kwargs):
+                for task in self._before_step_tasks:
+                    task()
+                output = original_step(*args, **kwargs)
+                for task in self._after_step_tasks:
+                    task()
+                return output
+
+            optimizer.step = types.MethodType(patched_step, optimizer)
+        return optimizers
+
     def _patch_configure_optimizers(self):
         assert isinstance(self.model, pl.LightningModule)
         if self._opt_returned_dicts:
             def new_configure_optimizers(_):  # type: ignore
-                optimizers = [opt_helper.call(self.model, self._param_names_map) for opt_helper in self._optimizer_helpers]  # type: ignore
+                optimizers = self._construct_optimizers()
                 lr_schedulers = [lrs_helper.call(optimizers[self._lrs_opt_map[i]])
                                  for i, lrs_helper in enumerate(self._lr_scheduler_helpers)]
                 opt_lrs_dicts = deepcopy(self._opt_returned_dicts)
@@ -546,13 +584,17 @@ class LightningEvaluator(Evaluator):
                 return opt_lrs_dicts
         elif self._lr_scheduler_helpers:
             def new_configure_optimizers(_):  # type: ignore
-                optimizers = [opt_helper.call(self.model, self._param_names_map) for opt_helper in self._optimizer_helpers]  # type: ignore
+                optimizers = self._construct_optimizers()
                 lr_schedulers = [lrs_helper.call(optimizers[self._lrs_opt_map[i]])
                                  for i, lrs_helper in enumerate(self._lr_scheduler_helpers)]
+                lr_schedulers = [
+                    dict(deepcopy(config), scheduler=scheduler) if config is not None else scheduler
+                    for config, scheduler in zip(self._lr_scheduler_configs, lr_schedulers)
+                ]
                 return optimizers, lr_schedulers
         else:
             def new_configure_optimizers(_):
-                optimizers = [opt_helper.call(self.model, self._param_names_map) for opt_helper in self._optimizer_helpers]  # type: ignore
+                optimizers = self._construct_optimizers()
                 return optimizers
 
         self.model.configure_optimizers = types.MethodType(new_configure_optimizers, self.model)
@@ -582,61 +624,32 @@ class LightningEvaluator(Evaluator):
 
     def patch_optimizer_step(self, before_step_tasks: List[Callable], after_step_tasks: List[Callable]):
         assert isinstance(self.model, pl.LightningModule)
-        old_configure_optimizers = self.model.configure_optimizers
-
-        def patched_step_factory(old_step):
-            def patched_step(_, *args, **kwargs):
-                for task in before_step_tasks:
-                    task()
-                # call origin optimizer step method
-                output = old_step(*args, **kwargs)
-                for task in after_step_tasks:
-                    task()
-                return output
-            return patched_step
-
-        if self._opt_returned_dicts:
-            def new_configure_optimizers(_):  # type: ignore
-                opt_lrs_dicts = old_configure_optimizers()
-                optimizer = [opt_lrs_dict['optimizer'] for opt_lrs_dict in opt_lrs_dicts][0]
-                optimizer.step = types.MethodType(patched_step_factory(optimizer.step), optimizer)
-                return opt_lrs_dicts
-        elif self._lr_scheduler_helpers:
-            def new_configure_optimizers(_):  # type: ignore
-                optimizers, lr_schedulers = old_configure_optimizers()
-                optimizer = optimizers[0]
-                optimizer.step = types.MethodType(patched_step_factory(optimizer.step), optimizer)
-                return optimizers, lr_schedulers
-        else:
-            def new_configure_optimizers(_):
-                optimizers = old_configure_optimizers()
-                optimizer = optimizers[0]
-                optimizer.step = types.MethodType(patched_step_factory(optimizer.step), optimizer)
-                return optimizers
-
-        self.model.configure_optimizers = types.MethodType(new_configure_optimizers, self.model)
+        self._before_step_tasks[:0] = before_step_tasks
+        self._after_step_tasks.extend(after_step_tasks)
 
     def revert_optimizer_step(self):
         assert isinstance(self.model, pl.LightningModule)
-        self.model.configure_callbacks = self._ori_model_attr['configure_callbacks']
+        self._before_step_tasks.clear()
+        self._after_step_tasks.clear()
 
     def train(self, max_steps: int | None = None, max_epochs: int | None = None):
         assert isinstance(self.model, pl.LightningModule)
         # reset trainer
-        trainer: pl.Trainer = self.trainer.trace_copy().get()  # type: ignore
+        trainer_trace = self.trainer.trace_copy()  # type: ignore
+        if max_steps is not None:
+            trainer_trace.trace_kwargs['max_steps'] = max_steps
+        if max_epochs is not None:
+            trainer_trace.trace_kwargs['max_epochs'] = max_epochs
+        trainer: pl.Trainer = trainer_trace.get()
         # NOTE: lightning may dry run some steps at first for sanity check in Trainer.fit() by default,
         # If we want to record some information in the forward hook, we may get some additional information,
         # so using Trainer.num_sanity_val_steps = 0 disable sanity check.
         trainer.num_sanity_val_steps = 0
 
-        if max_steps:
-            trainer.fit_loop.max_steps = max_steps  # type: ignore
-        if max_epochs:
-            trainer.fit_loop.max_epochs = max_epochs
-        trainer.fit(self.model, self.data_module)
-
-        # del trainer reference, we don't want to dump trainer when we dump the entire model.
-        self.model.trainer = None
+        try:
+            trainer.fit(self.model, datamodule=self.data_module)
+        finally:
+            self.model.trainer = None
 
     def finetune(self):
         self.train()
@@ -653,9 +666,10 @@ class LightningEvaluator(Evaluator):
         assert isinstance(self.model, pl.LightningModule)
         # reset trainer
         trainer: pl.Trainer = self.trainer.trace_copy().get()  # type: ignore
-        original_results = trainer.test(self.model, self.data_module)
-        # del trainer reference, we don't want to dump trainer when we dump the entire model.
-        self.model.trainer = None
+        try:
+            original_results = trainer.test(self.model, datamodule=self.data_module)
+        finally:
+            self.model.trainer = None
         nni_metrics_list = [metrics['default'] for metrics in original_results if 'default' in metrics]
         if nni_metrics_list:
             nni_metric = sum(nni_metrics_list) / len(nni_metrics_list)

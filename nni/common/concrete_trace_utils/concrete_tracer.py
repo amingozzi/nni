@@ -15,7 +15,7 @@ import builtins
 from itertools import chain
 from types import BuiltinMethodType, FunctionType, MethodDescriptorType, MethodType, MethodWrapperType, ModuleType
 from typing import Any, Dict, Iterable, Iterator, Optional, Set, Tuple, Type, List, Callable, Union
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import torch
 from torch._C import ScriptObject
@@ -30,6 +30,8 @@ from torch.fx.graph import Graph
 from torch.fx.node import Target, Node, Argument, _side_effectful_functions
 from torch.fx.proxy import TracerBase
 from torch.fx.operator_schemas import check_for_mutable_operation
+
+from nni.common.torch_utils import _temporary_eval_mode
 
 try:
     # Scope is a new class to record module path in pytorch 2.0
@@ -669,8 +671,10 @@ class ConcreteTracer(TracerBase):
                 always needed.
         """
         # fill default values
-        args = inspect.getfullargspec(root.forward).args[1:]
-        defaults = inspect.getfullargspec(root.forward).defaults
+        root_fn = getattr(root, forward_function_name) if isinstance(root, torch.nn.Module) else root
+        signature = inspect.getfullargspec(root_fn)
+        args = signature.args[1:] if isinstance(root, torch.nn.Module) else signature.args
+        defaults = signature.defaults
         defaults = tuple() if defaults is None else defaults
         if isinstance(concrete_args, (tuple, list)):
             concrete_args = (*concrete_args, *defaults[len(concrete_args) + len(defaults) - len(args):])
@@ -940,7 +944,7 @@ class ConcreteTracer(TracerBase):
                     self.agfunc_dict[func.__self__] = _create_wrapped_leaf_func(self, func, func)
                 wrapped = self.agfunc_dict[func.__self__]
             else:
-                if func.__qualname__.startswith('_TensorBase'):
+                if func.__qualname__.startswith(('_TensorBase.', 'TensorBase.')):
                     positions = (*positions, (torch.Tensor, func.__name__))
                     wrapped = _create_wrapped_leaf_method(self, getattr(torch.Tensor, func.__name__), func.__name__, to_func)
                 elif func.__qualname__.startswith('_VariableFunctionsClass'):
@@ -1433,27 +1437,14 @@ def _retain_weight_consistency(root: torch.nn.Module):
     return root
 
 @functools.wraps(_orig_node_is_impure)
-def node_is_impure_wrapper(node):
-    if node.op in {"placeholder", "output"}:
+def node_is_impure_wrapper(node, *args, **kwargs):
+    if node.op == "call_function" and node.target in _side_effectful_functions:
         return True
-
-    if node.op == "call_function":
-        return node.target in _side_effectful_functions
 
     if node.op == "call_method":
         return node.target.endswith("_")
 
-    if node.op == "call_module":
-        assert (
-            node.graph.owning_module is not None
-        ), "self.graph.owning_module not set for purity check"
-        target_mod = node.graph.owning_module.get_submodule(node.target)
-        assert (
-            target_mod is not None
-        ), f"Did not find expected submodule target {node.target}"
-        return getattr(target_mod, "_is_impure", False)
-
-    return False
+    return _orig_node_is_impure(node, *args, **kwargs)
 
 def concrete_trace(root : Union[torch.nn.Module, Callable[..., Any]],
                    concrete_args: Union[Dict[str, Any], Tuple],
@@ -1599,23 +1590,9 @@ def concrete_trace(root : Union[torch.nn.Module, Callable[..., Any]],
     Returns:
         fx.GraphModule: a Module created from the recorded operations from ``root``.
     """
-    tracer = ConcreteTracer(cpu_offload = cpu_offload)
-    is_training = root.training
-    root.eval()
-
-    graph = tracer.trace(root,
-        autowrap_leaf_function = autowrap_leaf_function,
-        autowrap_leaf_class = autowrap_leaf_class,
-        leaf_module = leaf_module,
-        fake_middle_class = fake_middle_class,
-        concrete_args = concrete_args,
-        use_operator_patch = use_operator_patch,
-        operator_patch_backlist = operator_patch_backlist,
-        forward_function_name = forward_function_name,
-    )
-
-    if trace_twice:
-        graph_check = tracer.trace(root,
+    with _temporary_eval_mode(root) if isinstance(root, torch.nn.Module) else nullcontext():
+        tracer = ConcreteTracer(cpu_offload = cpu_offload)
+        graph = tracer.trace(root,
             autowrap_leaf_function = autowrap_leaf_function,
             autowrap_leaf_class = autowrap_leaf_class,
             leaf_module = leaf_module,
@@ -1625,38 +1602,47 @@ def concrete_trace(root : Union[torch.nn.Module, Callable[..., Any]],
             operator_patch_backlist = operator_patch_backlist,
             forward_function_name = forward_function_name,
         )
-        # compare to check equal
-        assert len(graph.nodes) == len(graph_check.nodes), f'number nodes: {len(graph.nodes)} vs {len(graph_check.nodes)}'
-        for node_a, node_b in zip(graph.nodes, graph_check.nodes):
-            node_a: Node
-            node_b: Node
-            target_a = node_a.target
-            target_b = node_b.target
-            if node_a.op == 'get_attr' and node_a.name.startswith('_tensor_constant'):
-                assert node_b.op == 'get_attr' and node_b.name.startswith('_tensor_constant')
-                assert torch.equal(getattr(root, node_a.name), getattr(root, node_b.name))
-            elif node_a.op == 'call_function' and isinstance(target_a, Callable) and target_a.__name__ == 'apply' and\
-                hasattr(target_a, '__self__') and issubclass(target_a.__self__, torch.autograd.Function):
-                assert node_b.op == 'call_function' and isinstance(target_b, Callable) and target_b.__name__ == 'apply' and\
-                hasattr(target_b, '__self__') and issubclass(target_b.__self__, torch.autograd.Function)
-            else:
-                assert node_a.op == node_b.op and target_a == target_b, f'op: {node_a.op} vs {node_b.op}, target: {target_a} vs {target_b}'
 
-    with MagicMethodPatcher():
-        name = root.__class__.__name__ if isinstance(root, torch.nn.Module) else root.__name__
-        traced = GraphModule(tracer.root, graph, name)
+        if trace_twice:
+            graph_check = tracer.trace(root,
+                autowrap_leaf_function = autowrap_leaf_function,
+                autowrap_leaf_class = autowrap_leaf_class,
+                leaf_module = leaf_module,
+                fake_middle_class = fake_middle_class,
+                concrete_args = concrete_args,
+                use_operator_patch = use_operator_patch,
+                operator_patch_backlist = operator_patch_backlist,
+                forward_function_name = forward_function_name,
+            )
+            # compare to check equal
+            assert len(graph.nodes) == len(graph_check.nodes), f'number nodes: {len(graph.nodes)} vs {len(graph_check.nodes)}'
+            for node_a, node_b in zip(graph.nodes, graph_check.nodes):
+                node_a: Node
+                node_b: Node
+                target_a = node_a.target
+                target_b = node_b.target
+                if node_a.op == 'get_attr' and node_a.name.startswith('_tensor_constant'):
+                    assert node_b.op == 'get_attr' and node_b.name.startswith('_tensor_constant')
+                    assert torch.equal(getattr(root, node_a.name), getattr(root, node_b.name))
+                elif node_a.op == 'call_function' and isinstance(target_a, Callable) and target_a.__name__ == 'apply' and\
+                    hasattr(target_a, '__self__') and issubclass(target_a.__self__, torch.autograd.Function):
+                    assert node_b.op == 'call_function' and isinstance(target_b, Callable) and target_b.__name__ == 'apply' and\
+                    hasattr(target_b, '__self__') and issubclass(target_b.__self__, torch.autograd.Function)
+                else:
+                    assert node_a.op == node_b.op and target_a == target_b, f'op: {node_a.op} vs {node_b.op}, target: {target_a} vs {target_b}'
 
-        if dce:
-            with _Patcher() as patcher:
-                patcher.patch_method(Node, 'is_impure', node_is_impure_wrapper, deduplicate=False)
-                traced.graph.eliminate_dead_code()
-            traced.recompile()  # this need to be done in MagicMethodPatcher context
+        with MagicMethodPatcher():
+            name = root.__class__.__name__ if isinstance(root, torch.nn.Module) else root.__name__
+            traced = GraphModule(tracer.root, graph, name)
 
-    # TODO: better infomation
-    if check_args is not None:
-        assert root(**check_args) == traced(**check_args)
+            if dce:
+                with _Patcher() as patcher:
+                    patcher.patch_method(Node, 'is_impure', node_is_impure_wrapper, deduplicate=False)
+                    traced.graph.eliminate_dead_code()
+                traced.recompile()  # this need to be done in MagicMethodPatcher context
 
-    if is_training:
-        root.train()
+        # TODO: better infomation
+        if check_args is not None:
+            assert root(**check_args) == traced(**check_args)
 
-    return traced
+        return traced
