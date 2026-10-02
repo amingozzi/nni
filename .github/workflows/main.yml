@@ -36,7 +36,7 @@ jobs:
 
     # crowin-translation
     - name: crowdin-action
-      uses: crowdin/github-action@master
+      uses: crowdin/github-action@v2
       with:
         # Upload sources to Crowdin
         upload_sources: true # optional, default is true
